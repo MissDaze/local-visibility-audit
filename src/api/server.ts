@@ -3,9 +3,7 @@ import express, { Request, Response } from 'express';
 import cors from 'cors';
 import path from 'path';
 import OpenAI from 'openai';
-import { BusinessProfile } from '../types';
 import { OutscraperRecord } from '../types/outscraper';
-import { normalizeOutscraperData, parseOutscraperCsv } from '../normalizers/outscraper.normalizer';
 import { SYSTEM_PROMPT, buildUserMessage } from '../llm/prompt-builder';
 
 const app = express();
@@ -27,188 +25,162 @@ const openrouter = new OpenAI({
 const MODEL = process.env.OPENROUTER_MODEL || 'google/gemini-2.0-flash-exp:free';
 
 // ---------------------------------------------------------------------------
-// POST /api/fetch-competitors
-// Calls the Outscraper Google Maps API and returns up to 20 competitor records.
-// Body: { query: string, limit?: number }
+// Outscraper helper — fetch up to `limit` Google Maps results for a query.
 // ---------------------------------------------------------------------------
-app.post('/api/fetch-competitors', async (req: Request, res: Response) => {
-  try {
-    const { query, limit = 20 } = req.body as { query: string; limit?: number };
-
-    if (!query?.trim()) {
-      res.status(400).json({ error: 'query is required (e.g. "plumber in Melbourne")' });
-      return;
-    }
-
-    if (!process.env.OUTSCRAPER_API_KEY) {
-      res.status(500).json({
-        error: 'OUTSCRAPER_API_KEY is not set. Add it to your .env file or Railway variables.',
-      });
-      return;
-    }
-
-    const url =
-      `https://api.app.outscraper.com/maps/search-v3` +
-      `?query=${encodeURIComponent(query.trim())}` +
-      `&limit=${Math.min(limit, 20)}` +
-      `&async=false` +
-      `&language=en`;
-
-    const apiRes = await fetch(url, {
-      headers: {
-        'X-API-KEY': process.env.OUTSCRAPER_API_KEY,
-        'Accept': 'application/json',
-      },
-    });
-
-    if (!apiRes.ok) {
-      const text = await apiRes.text();
-      res.status(502).json({ error: `Outscraper API error ${apiRes.status}: ${text.slice(0, 200)}` });
-      return;
-    }
-
-    const body = await apiRes.json() as {
-      status: string;
-      data?: OutscraperRecord[][];
-      message?: string;
-    };
-
-    if (body.status !== 'Success' || !body.data) {
-      res.status(502).json({ error: body.message || 'Outscraper returned an unexpected response.' });
-      return;
-    }
-
-    // data is an array-of-arrays (one inner array per query string sent)
-    const records: OutscraperRecord[] = body.data[0] ?? [];
-
-    if (!records.length) {
-      res.status(404).json({ error: 'No results found for that query. Try a broader search term.' });
-      return;
-    }
-
-    const preview = records.map(r => ({
-      name: r.name,
-      rating: r.rating,
-      reviews: r.reviews,
-      photos: r.photos_count,
-      category: r.type,
-    }));
-
-    res.json({ count: records.length, records, preview });
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Failed to fetch competitors';
-    console.error('Outscraper fetch error:', msg);
-    res.status(500).json({ error: msg });
+async function outscraperSearch(query: string, limit = 20): Promise<OutscraperRecord[]> {
+  if (!process.env.OUTSCRAPER_API_KEY) {
+    throw new Error('OUTSCRAPER_API_KEY is not set.');
   }
-});
+
+  const url =
+    `https://api.app.outscraper.com/maps/search-v3` +
+    `?query=${encodeURIComponent(query)}` +
+    `&limit=${limit}` +
+    `&async=false` +
+    `&language=en`;
+
+  const res = await fetch(url, {
+    headers: {
+      'X-API-KEY': process.env.OUTSCRAPER_API_KEY,
+      Accept: 'application/json',
+    },
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Outscraper ${res.status}: ${text.slice(0, 200)}`);
+  }
+
+  const body = await res.json() as {
+    status: string;
+    data?: OutscraperRecord[][];
+    message?: string;
+  };
+
+  if (body.status !== 'Success' || !body.data) {
+    throw new Error(body.message || 'Outscraper returned an unexpected response.');
+  }
+
+  return body.data[0] ?? [];
+}
 
 // ---------------------------------------------------------------------------
 // POST /api/audit/stream
-// Accepts business details + competitor records (JSON from Outscraper API).
-// Streams the LLM report via Server-Sent Events.
 //
-// Body: {
-//   business: BusinessProfile,
-//   outscraperRecords: OutscraperRecord[],   ← from /api/fetch-competitors
-//   dataAgeDays?: number
-// }
+// Body: { businessName: string, city: string, industry?: string }
+//
+// SSE event types:
+//   { status: string }          — progress update shown to user
+//   { text: string }            — LLM output chunk (append to report)
+//   { done: true }              — report complete
+//   { error: string }           — fatal error
 // ---------------------------------------------------------------------------
 app.post('/api/audit/stream', async (req: Request, res: Response) => {
+  const { businessName, city, industry } = req.body as {
+    businessName: string;
+    city: string;
+    industry?: string;
+  };
+
+  if (!businessName?.trim() || !city?.trim()) {
+    res.status(400).json({ error: 'businessName and city are required.' });
+    return;
+  }
+
+  if (!process.env.OUTSCRAPER_API_KEY) {
+    res.status(500).json({ error: 'OUTSCRAPER_API_KEY is not set on the server.' });
+    return;
+  }
+
+  if (!process.env.OPENROUTER_API_KEY) {
+    res.status(500).json({ error: 'OPENROUTER_API_KEY is not set on the server.' });
+    return;
+  }
+
+  // SSE headers
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  const send = (payload: object) => res.write(`data: ${JSON.stringify(payload)}\n\n`);
+
   try {
-    const { business, outscraperRecords, outscraperCsv, dataAgeDays = 0 } = req.body as {
-      business: BusinessProfile;
-      outscraperRecords?: OutscraperRecord[];
-      outscraperCsv?: string;      // legacy fallback
-      dataAgeDays?: number;
-    };
+    // ── Step 1: Find the subject business ────────────────────────────────────
+    send({ status: `Searching Google Maps for "${businessName}" in ${city}…` });
 
-    if (!business) {
-      res.status(400).json({ error: 'business is required.' });
-      return;
-    }
-
-    if (!process.env.OPENROUTER_API_KEY) {
-      res.status(500).json({
-        error: 'OPENROUTER_API_KEY is not set. Add it to your .env file or Railway variables.',
-      });
-      return;
-    }
-
-    // Accept either pre-fetched JSON records or a raw CSV string (backward compat)
-    let rawRecords: OutscraperRecord[];
-    if (outscraperRecords?.length) {
-      rawRecords = outscraperRecords;
-    } else if (outscraperCsv) {
-      rawRecords = parseOutscraperCsv(outscraperCsv);
-    } else {
-      res.status(400).json({ error: 'outscraperRecords or outscraperCsv is required.' });
-      return;
-    }
-
-    if (rawRecords.length < 2) {
-      res.status(400).json({ error: 'Need at least 2 competitor records to benchmark.' });
-      return;
-    }
-
-    let competitors;
+    let subjectRecord: OutscraperRecord | null = null;
     try {
-      competitors = normalizeOutscraperData(rawRecords, business);
-      competitors.dataAgeDays = dataAgeDays;
+      const results = await outscraperSearch(`${businessName} ${city}`, 1);
+      subjectRecord = results[0] ?? null;
+
+      if (subjectRecord) {
+        send({
+          status: `Found: ${subjectRecord.name} — ${subjectRecord.rating}★ (${subjectRecord.reviews} reviews)`,
+        });
+      } else {
+        send({ status: `No exact match found for "${businessName}". Continuing with competitor data only.` });
+      }
     } catch (e: unknown) {
-      res.status(400).json({ error: e instanceof Error ? e.message : 'Normalisation error.' });
-      return;
+      send({ status: `Could not fetch business data: ${e instanceof Error ? e.message : 'unknown error'}` });
     }
 
-    const outscraperSummary = rawRecords
-      .slice(0, 20)
-      .map((r, i) =>
-        `${i + 1}. ${r.name || 'Unknown'} — ${r.rating ?? '?'}★ (${r.reviews ?? '?'} reviews), ${r.photos_count ?? '?'} photos, category: ${r.type ?? 'N/A'}`,
-      )
-      .join('\n');
+    // ── Step 2: Determine competitor search category ──────────────────────────
+    const categoryHint =
+      industry?.trim() ||
+      subjectRecord?.type ||
+      businessName; // fallback: use the business name itself as the search seed
 
-    const userMessage = buildUserMessage(business, competitors, outscraperSummary);
+    send({ status: `Fetching top 20 competitors for "${categoryHint}" in ${city}…` });
 
-    // SSE headers
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    res.flushHeaders();
-
-    const send = (payload: object) => res.write(`data: ${JSON.stringify(payload)}\n\n`);
-
+    let competitorRecords: OutscraperRecord[] = [];
     try {
-      const stream = await openrouter.chat.completions.create({
-        model: MODEL,
-        max_tokens: 4096,
-        stream: true,
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: userMessage },
-        ],
-      });
+      competitorRecords = await outscraperSearch(`${categoryHint} in ${city}`, 20);
 
-      for await (const chunk of stream) {
-        const text = chunk.choices[0]?.delta?.content;
-        if (text) send({ text });
-        if (chunk.choices[0]?.finish_reason) {
-          send({ done: true });
-          res.end();
-          return;
-        }
+      // Remove the subject business from competitors if it appears in the list
+      if (subjectRecord?.name) {
+        competitorRecords = competitorRecords.filter(
+          r => r.name?.toLowerCase().trim() !== subjectRecord!.name?.toLowerCase().trim(),
+        );
       }
 
-      send({ done: true });
-      res.end();
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'LLM error';
-      console.error('OpenRouter error:', msg);
-      send({ error: `OpenRouter error: ${msg}` });
-      res.end();
+      send({ status: `Found ${competitorRecords.length} competitors. Generating your report…` });
+    } catch (e: unknown) {
+      send({ status: `Competitor fetch failed: ${e instanceof Error ? e.message : 'error'}. Continuing with available data.` });
     }
+
+    // ── Step 3: Stream from LLM ───────────────────────────────────────────────
+    const userMessage = buildUserMessage(
+      businessName.trim(),
+      city.trim(),
+      industry?.trim(),
+      subjectRecord,
+      competitorRecords,
+    );
+
+    const stream = await openrouter.chat.completions.create({
+      model: MODEL,
+      max_tokens: 4096,
+      stream: true,
+      messages: [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: userMessage },
+      ],
+    });
+
+    for await (const chunk of stream) {
+      const text = chunk.choices[0]?.delta?.content;
+      if (text) send({ text });
+      if (chunk.choices[0]?.finish_reason) break;
+    }
+
+    send({ done: true });
+    res.end();
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Internal server error';
-    console.error('Server error:', msg);
-    if (!res.headersSent) res.status(500).json({ error: msg });
+    const msg = err instanceof Error ? err.message : 'Unexpected error';
+    console.error('Audit stream error:', msg);
+    send({ error: msg });
+    res.end();
   }
 });
 
@@ -220,8 +192,8 @@ app.get('*', (_req, res) => {
 app.listen(PORT, () => {
   console.log(`Local Audit Engine → http://localhost:${PORT}`);
   console.log(`Model: ${MODEL}`);
-  if (!process.env.OPENROUTER_API_KEY) console.warn('⚠  OPENROUTER_API_KEY not set');
   if (!process.env.OUTSCRAPER_API_KEY) console.warn('⚠  OUTSCRAPER_API_KEY not set');
+  if (!process.env.OPENROUTER_API_KEY) console.warn('⚠  OPENROUTER_API_KEY not set');
 });
 
 export default app;
