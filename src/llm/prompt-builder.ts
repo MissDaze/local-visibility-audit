@@ -1,4 +1,5 @@
 import { OutscraperRecord } from '../types/outscraper';
+import { BenchmarkData } from '../engine/benchmark';
 
 export const SYSTEM_PROMPT = `You are a senior local business visibility consultant who produces consultant-grade business growth assessments. Your reports feel like they were written by an experienced human expert — not an automated tool. You write with authority, commercial awareness, and empathy for the business owner.
 
@@ -289,15 +290,57 @@ export function buildUserMessage(
   industry: string | undefined,
   subjectRecord: OutscraperRecord | null,
   competitorRecords: OutscraperRecord[],
+  benchmarks: BenchmarkData,
 ): string {
   const subjectSection = subjectRecord
     ? `## SUBJECT BUSINESS DATA (from Google Maps)\n\n${formatRecord(subjectRecord)}`
-    : `## SUBJECT BUSINESS DATA\n\nNo exact match found for "${businessName}" in "${city}". The business may not have a Google Maps listing, or the listing name may differ significantly. Produce the report based on competitor context and classify this as a Foundation Problem — missing or unfindable listing is the primary finding.`;
+    : `## SUBJECT BUSINESS DATA\n\nNo exact match found for "${businessName}" in "${city}". ` +
+      `The business may not have a Google Maps listing, or the listing name may differ significantly. ` +
+      `Classify this as a Foundation Problem — missing or unfindable listing is the primary finding.`;
 
   const competitorSection = competitorRecords.length
-    ? `## COMPETITOR SET — ${competitorRecords.length} businesses in this category and area\n\n` +
+    ? `## COMPETITOR SET — ${competitorRecords.length} relevant businesses (pre-filtered for category relevance)\n\n` +
       competitorRecords.map((r, i) => formatRecord(r, i)).join('\n\n')
-    : `## COMPETITOR SET\n\nNo competitor data could be retrieved for this query.`;
+    : `## COMPETITOR SET\n\nNo relevant competitor data could be retrieved for this query.`;
+
+  const benchmarkSection = `## PRE-VALIDATED BENCHMARK DATA
+The following figures have been computed and validated by the system before this prompt was generated.
+You MUST use these figures in the report. Do NOT recalculate or contradict them.
+
+Sample:
+- Total competitor candidates fetched: ${benchmarks.totalCandidates}
+- Relevant competitors included (after relevance filtering): ${benchmarks.includedCount}
+- Competitors excluded as unrelated: ${benchmarks.excludedCount}
+
+Website validation (${benchmarks.websiteValidationSummary}):
+- Competitors WITH validated websites: ${benchmarks.competitorsWithWebsites}
+- Competitors WITHOUT websites: ${benchmarks.competitorsWithoutWebsites}
+
+Aggregate metrics (computed from ${benchmarks.includedCount} relevant competitors):
+- Average rating: ${benchmarks.avgRating ?? 'insufficient data'}
+- Average review count: ${benchmarks.avgReviews ?? 'insufficient data'}
+- Average photo count: ${benchmarks.avgPhotos ?? 'insufficient data'}
+- Market leader rating: ${benchmarks.maxRating ?? 'N/A'}
+- Market leader review count: ${benchmarks.maxReviews ?? 'N/A'}
+- Market leader photo count: ${benchmarks.maxPhotos ?? 'N/A'}
+- % competitors with hours listed: ${benchmarks.percentWithHours !== null ? benchmarks.percentWithHours + '%' : 'N/A'}
+- % competitors with description: ${benchmarks.percentWithDescription !== null ? benchmarks.percentWithDescription + '%' : 'N/A'}
+
+Subject rankings within relevant competitor set:
+- Rating rank: ${benchmarks.subjectRatingRank !== null ? `#${benchmarks.subjectRatingRank} of ${benchmarks.includedCount}` : 'N/A'}
+- Review count rank: ${benchmarks.subjectReviewRank !== null ? `#${benchmarks.subjectReviewRank} of ${benchmarks.includedCount}` : 'N/A'}
+- Photo count rank: ${benchmarks.subjectPhotoRank !== null ? `#${benchmarks.subjectPhotoRank} of ${benchmarks.includedCount}` : 'N/A'}
+
+Benchmark confidence: ${benchmarks.benchmarkConfidence}%
+${benchmarks.confidenceReasons.length ? 'Confidence notes:\n' + benchmarks.confidenceReasons.map(r => `- ${r}`).join('\n') : ''}
+
+## VALIDATED CONSTRAINTS — MANDATORY
+${benchmarks.constraints.length
+    ? benchmarks.constraints.map(c => `• ${c}`).join('\n')
+    : '• No specific contradictions detected.'}
+
+You are REQUIRED to honour all CONSTRAINT and VALIDATED lines above when writing findings and rankings.
+Violating a CONSTRAINT line means the report contains a factual error.`;
 
   return `Generate a complete Business Growth Assessment for this business.
 
@@ -313,11 +356,16 @@ ${competitorSection}
 
 ---
 
+${benchmarkSection}
+
+---
+
 Instructions:
-1. Calculate market averages and rankings from the competitor set above.
+1. Use the PRE-VALIDATED BENCHMARK DATA above — do not recalculate averages or rankings from scratch.
 2. Apply the full 13-section output format from your instructions.
-3. Use ONLY numbers that appear in the data above — no invented statistics or percentages.
-4. Apply dynamic service matching for the Done For You section based on actual findings.
-5. Select the archetype CTA template that matches this business's situation.
-6. Generate the complete report now.`;
+3. Use ONLY numbers that appear in the data or benchmarks above — no invented statistics or percentages.
+4. Honour all CONSTRAINT lines — they block specific false claims.
+5. Apply dynamic service matching for the Done For You section.
+6. Select the archetype CTA template that matches this business's situation.
+7. Generate the complete report now.`;
 }

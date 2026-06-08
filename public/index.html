@@ -317,6 +317,119 @@
       color: var(--red); font-size: 14px;
     }
 
+    /* ── Debug panel ── */
+    .debug-panel {
+      display: none;
+      background: #0a0c14;
+      border: 1px solid #2e3347;
+      border-radius: var(--radius);
+      margin-bottom: 24px;
+      overflow: hidden;
+    }
+    .debug-panel.visible { display: block; }
+
+    .debug-toggle {
+      width: 100%;
+      background: none;
+      border: none;
+      border-bottom: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      padding: 12px 16px;
+      cursor: pointer;
+      text-align: left;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-family: inherit;
+      transition: color 0.15s;
+    }
+    .debug-toggle:hover { color: var(--text); }
+    .debug-toggle .debug-arrow { margin-left: auto; transition: transform 0.2s; }
+    .debug-toggle.open .debug-arrow { transform: rotate(180deg); }
+
+    .debug-body { display: none; padding: 16px; overflow-x: auto; }
+    .debug-body.open { display: block; }
+
+    .debug-summary {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    .debug-stat {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px 12px;
+    }
+    .debug-stat .ds-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+    .debug-stat .ds-value { font-size: 16px; font-weight: 700; margin-top: 2px; }
+
+    .debug-confidence {
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 12px;
+      padding: 8px 12px;
+      background: var(--surface);
+      border-radius: 6px;
+    }
+    .debug-confidence strong { color: var(--text); }
+
+    .debug-constraints {
+      font-size: 12px;
+      margin-bottom: 14px;
+      padding: 8px 12px;
+      background: #ef444408;
+      border: 1px solid #ef444422;
+      border-radius: 6px;
+      color: var(--muted);
+    }
+    .debug-constraints strong { color: #ef9999; }
+
+    .debug-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+      min-width: 700px;
+    }
+    .debug-table th {
+      text-align: left;
+      padding: 7px 10px;
+      color: var(--muted);
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    .debug-table td {
+      padding: 7px 10px;
+      border-bottom: 1px solid #1a1d27;
+      vertical-align: top;
+    }
+    .debug-table tr.excluded td { opacity: 0.45; }
+    .debug-table tr.excluded td:first-child { opacity: 1; }
+
+    .tag-included { color: var(--green); font-weight: 700; }
+    .tag-excluded { color: var(--red); font-weight: 700; }
+    .tag-website-yes { color: var(--green); }
+    .tag-website-no { color: var(--muted); }
+
+    .score-pill {
+      display: inline-block;
+      padding: 1px 7px;
+      border-radius: 10px;
+      font-weight: 700;
+      font-size: 11px;
+    }
+    .score-high { background: #22c55e22; color: var(--green); }
+    .score-mid  { background: #f59e0b22; color: #f59e0b; }
+    .score-low  { background: #ef444422; color: var(--red); }
+
     /* ── How it works ── */
     .how-it-works {
       display: grid;
@@ -411,6 +524,39 @@
     <span id="status-text">Starting…</span>
   </div>
 
+  <!-- Debug panel (populated by SSE debug event) -->
+  <div class="debug-panel" id="debug-panel">
+    <button class="debug-toggle" id="debug-toggle" onclick="toggleDebug()">
+      🔍 Competitor Analysis Debug
+      <span class="debug-arrow">▼</span>
+    </button>
+    <div class="debug-body" id="debug-body">
+      <div class="debug-summary" id="debug-summary"></div>
+      <div class="debug-confidence" id="debug-confidence"></div>
+      <div class="debug-constraints" id="debug-constraints" style="display:none"></div>
+      <div style="overflow-x:auto">
+        <table class="debug-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Business</th>
+              <th>Primary Category</th>
+              <th>Type Group</th>
+              <th>Relevance</th>
+              <th>Category Match</th>
+              <th>Status</th>
+              <th>Website</th>
+              <th>Rating</th>
+              <th>Reviews</th>
+              <th>Reason</th>
+            </tr>
+          </thead>
+          <tbody id="debug-table-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
   <!-- Report -->
   <div class="report-card" id="report-card">
     <div class="report-actions" id="report-actions">
@@ -445,6 +591,81 @@
 <script>
   let rawMarkdown = '';
 
+  function toggleDebug() {
+    const body = document.getElementById('debug-body');
+    const toggle = document.getElementById('debug-toggle');
+    body.classList.toggle('open');
+    toggle.classList.toggle('open');
+  }
+
+  function renderDebugPanel(data) {
+    const b = data.benchmarks;
+    const panel = document.getElementById('debug-panel');
+    panel.classList.add('visible');
+
+    // Summary stats
+    document.getElementById('debug-summary').innerHTML = [
+      { label: 'Candidates fetched', value: b.totalCandidates },
+      { label: 'Relevant included', value: b.included, green: true },
+      { label: 'Excluded (unrelated)', value: b.excluded, red: b.excluded > 0 },
+      { label: 'With websites', value: b.websiteSummary.match(/With websites: (\d+)/)?.[1] ?? '?' },
+      { label: 'Avg rating', value: b.avgRating !== null ? b.avgRating + '★' : 'N/A' },
+      { label: 'Avg reviews', value: b.avgReviews ?? 'N/A' },
+      { label: 'Benchmark confidence', value: b.confidence + '%', color: b.confidence >= 70 ? 'var(--green)' : b.confidence >= 45 ? '#f59e0b' : 'var(--red)' },
+    ].map(s => `
+      <div class="debug-stat">
+        <div class="ds-label">${s.label}</div>
+        <div class="ds-value" style="color:${s.color || (s.green ? 'var(--green)' : s.red ? 'var(--red)' : 'var(--text)')}">
+          ${s.value}
+        </div>
+      </div>`).join('');
+
+    // Confidence reasons
+    const confEl = document.getElementById('debug-confidence');
+    if (b.confidenceReasons && b.confidenceReasons.length) {
+      confEl.innerHTML = '<strong>Confidence notes:</strong> ' + b.confidenceReasons.join(' · ');
+    } else {
+      confEl.innerHTML = '<strong>Confidence:</strong> High — sample size and category match are strong.';
+    }
+
+    // Constraints / contradictions
+    const constEl = document.getElementById('debug-constraints');
+    const blockConstraints = (b.constraints || []).filter(c => c.startsWith('CONSTRAINT') || c.startsWith('CONTRADICTION'));
+    if (blockConstraints.length) {
+      constEl.style.display = '';
+      constEl.innerHTML = '<strong>⚠ Active constraints sent to LLM:</strong><br>' +
+        blockConstraints.map(c => `• ${c}`).join('<br>');
+    }
+
+    // Competitor table
+    const tbody = document.getElementById('debug-table-body');
+    tbody.innerHTML = data.competitors.map((c, i) => {
+      const score = c.relevanceScore;
+      const scoreClass = score >= 80 ? 'score-high' : score >= 60 ? 'score-mid' : 'score-low';
+      const rowClass = c.included ? '' : 'excluded';
+      const statusLabel = c.included
+        ? '<span class="tag-included">✓ Included</span>'
+        : '<span class="tag-excluded">✗ Excluded</span>';
+      const websiteLabel = c.hasWebsite
+        ? `<span class="tag-website-yes">✓ Yes</span>`
+        : `<span class="tag-website-no">—</span>`;
+
+      return `<tr class="${rowClass}">
+        <td>${i + 1}</td>
+        <td><strong>${c.name || '—'}</strong></td>
+        <td>${c.category || '—'}</td>
+        <td>${c.typeGroup || '—'}</td>
+        <td><span class="score-pill ${scoreClass}">${score}</span></td>
+        <td>${c.categoryMatch || '—'}</td>
+        <td>${statusLabel}</td>
+        <td>${websiteLabel}</td>
+        <td>${c.rating ?? '—'}</td>
+        <td>${c.reviews ?? '—'}</td>
+        <td style="font-size:11px;color:var(--muted)">${c.exclusionReason || ''}</td>
+      </tr>`;
+    }).join('');
+  }
+
   async function runAudit() {
     const businessName = document.getElementById('business-name').value.trim();
     const city = document.getElementById('city').value.trim();
@@ -460,6 +681,13 @@
     document.getElementById('report-card').classList.remove('visible');
     document.getElementById('report-actions').classList.remove('visible');
     document.getElementById('report-content').innerHTML = '';
+    // Reset debug panel
+    document.getElementById('debug-panel').classList.remove('visible');
+    document.getElementById('debug-body').classList.remove('open');
+    document.getElementById('debug-toggle').classList.remove('open');
+    document.getElementById('debug-table-body').innerHTML = '';
+    document.getElementById('debug-summary').innerHTML = '';
+    document.getElementById('debug-constraints').style.display = 'none';
     rawMarkdown = '';
 
     const setStatus = (msg) => {
@@ -498,6 +726,10 @@
             const payload = JSON.parse(line.slice(6));
 
             if (payload.error) { showError(payload.error); return; }
+
+            if (payload.debug) {
+              renderDebugPanel(payload.debug);
+            }
 
             if (payload.status) {
               setStatus(payload.status);
