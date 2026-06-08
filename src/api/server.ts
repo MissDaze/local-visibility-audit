@@ -23,13 +23,14 @@ const openrouter = new OpenAI({
   },
 });
 
-const MODEL = process.env.OPENROUTER_MODEL || 'google/gemini-2.5-flash:free';
+const MODEL = process.env.OPENROUTER_MODEL || 'openai/gpt-oss-120b:free';
 
 // Free-tier fallback chain — tried in order if the primary model is rate-limited.
 const FALLBACK_MODELS = [
+  'nvidia/nemotron-nano-12b-v2-vl:free',
+  'qwen/qwen3-next-80b-a3b-instruct:free',
+  'google/gemini-2.5-flash:free',
   'deepseek/deepseek-r1:free',
-  'meta-llama/llama-4-scout:free',
-  'meta-llama/llama-3.3-70b:free',
 ];
 
 // ---------------------------------------------------------------------------
