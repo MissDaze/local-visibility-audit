@@ -1,5 +1,6 @@
 import { OutscraperRecord } from '../types/outscraper';
 import { BenchmarkData } from '../engine/benchmark';
+import { SubjectWebsiteAudit, CompetitorWebsiteCheck } from '../engine/web-audit';
 
 export const SYSTEM_PROMPT = `You are a senior local business visibility consultant who produces consultant-grade business growth assessments. Your reports feel like they were written by an experienced human expert — not an automated tool. You write with authority, commercial awareness, and empathy for the business owner.
 
@@ -291,6 +292,68 @@ function formatRecord(r: OutscraperRecord, index?: number): string {
   return lines.filter(Boolean).join('\n');
 }
 
+function formatSubjectWebsiteAudit(audit: SubjectWebsiteAudit): string {
+  const lines = [
+    `## SUBJECT WEBSITE AUDIT`,
+    `URL: ${audit.url}`,
+    `Reachable: ${audit.reachable ? 'Yes' : 'No — could not fetch'}`,
+    `SSL (HTTPS): ${audit.ssl ? 'Yes' : 'No'}`,
+    `Load time: ${audit.loadTimeMs !== null ? audit.loadTimeMs + 'ms' : 'N/A'}`,
+    `Quality score: ${audit.qualityScore}/100`,
+    ``,
+    `Content found on homepage:`,
+    `- Page title: ${audit.title || 'Not found'}`,
+    `- Meta description: ${audit.metaDescription || 'Not found'}`,
+    `- H1 heading: ${audit.h1 || 'Not found'}`,
+    audit.topHeadings.length ? `- Other headings: ${audit.topHeadings.join(' | ')}` : '',
+    ``,
+    `Trust and conversion signals:`,
+    `- Phone number visible: ${audit.hasPhone ? 'Yes' : 'Not detected'}`,
+    `- Email visible: ${audit.hasEmail ? 'Yes' : 'Not detected'}`,
+    `- Online booking system: ${audit.hasBooking ? 'Yes' : 'Not detected'}`,
+    `- Online ordering: ${audit.hasOnlineOrdering ? 'Yes' : 'Not detected'}`,
+    `- Menu or services listed: ${audit.hasMenu ? 'Yes' : 'Not detected'}`,
+    `- Pricing or rates: ${audit.hasPricingOrRates ? 'Yes' : 'Not detected'}`,
+    `- Testimonials or reviews: ${audit.hasTestimonials ? 'Yes' : 'Not detected'}`,
+    `- Contact page: ${audit.hasContactPage ? 'Yes' : 'Not detected'}`,
+    `- Mobile viewport: ${audit.hasMobileViewport ? 'Yes' : 'Not detected'}`,
+    audit.detectedCTAs.length ? `- CTAs found: ${audit.detectedCTAs.join(', ')}` : '- CTAs: None detected',
+    ``,
+    audit.qualityNotes.length
+      ? `Website quality gaps identified:\n${audit.qualityNotes.map(n => `- ${n}`).join('\n')}`
+      : `No major quality gaps detected.`,
+  ];
+  return lines.filter(l => l !== null && l !== undefined).join('\n');
+}
+
+function formatCompetitorWebsites(checks: CompetitorWebsiteCheck[]): string {
+  if (!checks.length) return '## COMPETITOR WEBSITE AUDITS\n\nNo competitor websites could be audited.';
+
+  const reachable = checks.filter(c => c.reachable);
+  const lines = [
+    `## COMPETITOR WEBSITE AUDITS`,
+    `Websites audited: ${checks.length} | Reachable: ${reachable.length} | Unreachable: ${checks.length - reachable.length}`,
+    ``,
+    ...checks.map(c =>
+      `**${c.name}**` +
+      ` | URL: ${c.url || 'none'}` +
+      ` | Reachable: ${c.reachable ? 'Yes' : 'No'}` +
+      ` | SSL: ${c.ssl !== null ? (c.ssl ? 'Yes' : 'No') : '?'}` +
+      ` | Title: ${c.title || '—'}` +
+      ` | Booking: ${c.hasBooking ? 'Yes' : 'No'}` +
+      ` | Online ordering: ${c.hasOnlineOrdering ? 'Yes' : 'No'}` +
+      ` | Menu/services: ${c.hasMenu ? 'Yes' : 'No'}`,
+    ),
+    ``,
+    `Competitor website summary:`,
+    `- With booking system: ${reachable.filter(c => c.hasBooking).length} of ${reachable.length} audited`,
+    `- With online ordering: ${reachable.filter(c => c.hasOnlineOrdering).length} of ${reachable.length} audited`,
+    `- With menu/services: ${reachable.filter(c => c.hasMenu).length} of ${reachable.length} audited`,
+    `- With SSL: ${reachable.filter(c => c.ssl).length} of ${reachable.length} audited`,
+  ];
+  return lines.join('\n');
+}
+
 export function buildUserMessage(
   businessName: string,
   city: string,
@@ -298,6 +361,8 @@ export function buildUserMessage(
   subjectRecord: OutscraperRecord | null,
   competitorRecords: OutscraperRecord[],
   benchmarks: BenchmarkData,
+  subjectWebsiteAudit: SubjectWebsiteAudit | null,
+  competitorWebsiteChecks: CompetitorWebsiteCheck[],
 ): string {
   const subjectSection = subjectRecord
     ? `## SUBJECT BUSINESS DATA (from Google Maps)\n\n${formatRecord(subjectRecord)}`
@@ -356,6 +421,14 @@ Violating a CONSTRAINT line means the report contains a factual error.`;
       `This is a common data gap — do NOT state the business has no website. ` +
       `If website absence is relevant, use "no website was detected in the data" language.`;
 
+  const websiteAuditSection = subjectWebsiteAudit
+    ? formatSubjectWebsiteAudit(subjectWebsiteAudit)
+    : `## SUBJECT WEBSITE AUDIT\n\nNo website could be found or audited for this business. ` +
+      `Do not state the business has no website — the site may exist but was not discoverable. ` +
+      `Flag website presence as unknown/unverified in the report.`;
+
+  const competitorWebsiteSection = formatCompetitorWebsites(competitorWebsiteChecks);
+
   return `Generate a complete Business Growth Assessment for this business.
 
 **Business name:** ${businessName}
@@ -372,16 +445,25 @@ ${competitorSection}
 
 ---
 
+${websiteAuditSection}
+
+---
+
+${competitorWebsiteSection}
+
+---
+
 ${benchmarkSection}
 
 ---
 
 Instructions:
 1. Use the PRE-VALIDATED BENCHMARK DATA above — do not recalculate averages or rankings from scratch.
-2. Apply the full 13-section output format from your instructions.
-3. Use ONLY numbers that appear in the data or benchmarks above — no invented statistics or percentages.
-4. Honour all CONSTRAINT lines — they block specific false claims.
-5. Apply dynamic service matching for the Done For You section.
-6. Select the archetype CTA template that matches this business's situation.
-7. Generate the complete report now.`;
+2. Use the WEBSITE AUDIT sections above when writing any website-related findings. These are real fetched data.
+3. Apply the full 13-section output format from your instructions.
+4. Use ONLY numbers that appear in the data or benchmarks above — no invented statistics or percentages.
+5. Honour all CONSTRAINT lines — they block specific false claims.
+6. Apply dynamic service matching for the Done For You section.
+7. Select the archetype CTA template that matches this business's situation.
+8. Generate the complete report now.`;
 }

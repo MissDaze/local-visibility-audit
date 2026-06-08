@@ -6,8 +6,15 @@ import OpenAI from 'openai';
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 import { OutscraperRecord } from '../types/outscraper';
 import { SYSTEM_PROMPT, buildUserMessage } from '../llm/prompt-builder';
-import { scoreAndFilterCompetitors, ScoredCompetitor } from '../engine/relevance';
+import { scoreAndFilterCompetitors, ScoredCompetitor, resolveUrl } from '../engine/relevance';
 import { computeBenchmarks, BenchmarkData } from '../engine/benchmark';
+import {
+  searchForWebsite,
+  auditSubjectWebsite,
+  auditCompetitorWebsites,
+  SubjectWebsiteAudit,
+  CompetitorWebsiteCheck,
+} from '../engine/web-audit';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -64,13 +71,6 @@ async function outscraperSearch(query: string, limit = 20): Promise<OutscraperRe
 
 // ---------------------------------------------------------------------------
 // POST /api/audit/stream
-//
-// SSE event types:
-//   { status: string }                      — progress update
-//   { debug: DebugPayload }                 — competitor analysis panel data
-//   { text: string }                        — LLM output chunk
-//   { done: true }                          — report complete
-//   { error: string }                       — fatal error
 // ---------------------------------------------------------------------------
 app.post('/api/audit/stream', async (req: Request, res: Response) => {
   const { businessName, city, industry } = req.body as {
@@ -102,7 +102,7 @@ app.post('/api/audit/stream', async (req: Request, res: Response) => {
   const send = (payload: object) => res.write(`data: ${JSON.stringify(payload)}\n\n`);
 
   try {
-    // ── Step 1: Subject business ─────────────────────────────────────────────
+    // ── Step 1: Subject business (Outscraper) ────────────────────────────────
     send({ status: `Searching Google Maps for "${businessName}" in ${city}…` });
 
     let subjectRecord: OutscraperRecord | null = null;
@@ -119,39 +119,57 @@ app.post('/api/audit/stream', async (req: Request, res: Response) => {
       send({ status: `Could not fetch business data: ${e instanceof Error ? e.message : 'unknown error'}` });
     }
 
-    // ── Step 2: Competitor candidates ────────────────────────────────────────
+    // ── Steps 2 + 3 run in parallel: competitor fetch + subject website audit ─
     const categoryHint = industry?.trim() || subjectRecord?.type || businessName;
-    send({ status: `Fetching competitor candidates for "${categoryHint}" in ${city}…` });
 
-    let rawCandidates: OutscraperRecord[] = [];
-    try {
-      rawCandidates = await outscraperSearch(`${categoryHint} in ${city}`, 20);
+    send({ status: `Fetching competitors and auditing websites…` });
 
-      // Remove the subject itself from candidates
-      if (subjectRecord?.name) {
-        const subjectNameNorm = subjectRecord.name.toLowerCase().trim();
-        rawCandidates = rawCandidates.filter(
-          r => r.name?.toLowerCase().trim() !== subjectNameNorm,
-        );
-      }
-    } catch (e: unknown) {
-      send({ status: `Competitor fetch failed: ${e instanceof Error ? e.message : 'error'}. Continuing.` });
-    }
+    const [rawCandidates, subjectWebsiteAudit] = await Promise.all([
+      // Competitor candidates from Outscraper
+      outscraperSearch(`${categoryHint} in ${city}`, 20).catch(() => [] as OutscraperRecord[]),
 
-    // ── Step 3: Relevance scoring + filtering ────────────────────────────────
-    send({ status: `Scoring ${rawCandidates.length} competitor candidates for relevance…` });
+      // Subject website: find URL then audit
+      (async (): Promise<SubjectWebsiteAudit | null> => {
+        const knownUrl = resolveUrl(subjectRecord ?? {} as OutscraperRecord);
+        const url = knownUrl || (subjectRecord
+          ? await searchForWebsite(businessName, city)
+          : null);
+
+        if (!url) {
+          send({ status: `No website found for "${businessName}" — searching competitors…` });
+          return null;
+        }
+
+        // Store back on record if we found it via search
+        if (subjectRecord && !subjectRecord.site && url) {
+          subjectRecord.site = url;
+        }
+
+        send({ status: `Found website for "${businessName}" — auditing content…` });
+        const audit = await auditSubjectWebsite(url);
+        send({ status: `Website audit complete (quality score: ${audit.qualityScore}/100)` });
+        return audit;
+      })(),
+    ]);
+
+    // Remove subject from competitor candidates
+    const filteredCandidates = subjectRecord?.name
+      ? rawCandidates.filter(r => r.name?.toLowerCase().trim() !== subjectRecord!.name!.toLowerCase().trim())
+      : rawCandidates;
+
+    // ── Step 4: Relevance scoring ────────────────────────────────────────────
+    send({ status: `Scoring ${filteredCandidates.length} competitor candidates for relevance…` });
 
     let scoredCompetitors: ScoredCompetitor[] = [];
-    if (subjectRecord && rawCandidates.length > 0) {
-      scoredCompetitors = scoreAndFilterCompetitors(subjectRecord, rawCandidates, 70);
+    if (subjectRecord && filteredCandidates.length > 0) {
+      scoredCompetitors = scoreAndFilterCompetitors(subjectRecord, filteredCandidates, 70);
     } else {
-      // No subject to score against — include all candidates
-      scoredCompetitors = rawCandidates.map(r => ({
+      scoredCompetitors = filteredCandidates.map(r => ({
         record: r,
         relevanceScore: 50,
         included: true,
         exclusionReason: null,
-        hasValidWebsite: !!(r.site?.trim()),
+        hasValidWebsite: !!resolveUrl(r),
         categoryMatch: 'Unscored (no subject)',
         typeGroup: null,
       }));
@@ -163,13 +181,27 @@ app.post('/api/audit/stream', async (req: Request, res: Response) => {
     send({
       status: `${includedCompetitors.length} relevant competitors identified` +
         (excludedCount > 0 ? ` (${excludedCount} excluded as unrelated)` : '') +
+        `. Auditing competitor websites…`,
+    });
+
+    // ── Step 5: Competitor website audits (parallel, top 10 with URLs) ───────
+    const competitorWebsiteChecks: CompetitorWebsiteCheck[] = await auditCompetitorWebsites(
+      includedCompetitors.map(c => ({ record: c.record, relevanceScore: c.relevanceScore })),
+    );
+
+    const reachableCompetitorSites = competitorWebsiteChecks.filter(c => c.reachable).length;
+    send({
+      status: `Audited ${competitorWebsiteChecks.length} competitor websites` +
+        (reachableCompetitorSites < competitorWebsiteChecks.length
+          ? ` (${reachableCompetitorSites} reachable)`
+          : '') +
         `. Computing benchmarks…`,
     });
 
-    // ── Step 4: Benchmarks + contradiction detection ──────────────────────────
+    // ── Step 6: Benchmark computation + contradiction detection ──────────────
     const benchmarkData: BenchmarkData = computeBenchmarks(subjectRecord, scoredCompetitors);
 
-    // ── Step 5: Emit debug panel data ────────────────────────────────────────
+    // ── Step 7: Debug panel SSE event ────────────────────────────────────────
     send({
       debug: {
         subject: subjectRecord ? {
@@ -179,22 +211,35 @@ app.post('/api/audit/stream', async (req: Request, res: Response) => {
           reviews: subjectRecord.reviews,
           photos: subjectRecord.photos_count,
           website: subjectRecord.site || null,
+          websiteAudit: subjectWebsiteAudit ? {
+            url: subjectWebsiteAudit.url,
+            qualityScore: subjectWebsiteAudit.qualityScore,
+            ssl: subjectWebsiteAudit.ssl,
+            reachable: subjectWebsiteAudit.reachable,
+            hasBooking: subjectWebsiteAudit.hasBooking,
+            hasPhone: subjectWebsiteAudit.hasPhone,
+          } : null,
         } : null,
-        competitors: scoredCompetitors.map(c => ({
-          name: c.record.name,
-          category: c.record.type,
-          subtypes: c.record.subtypes,
-          relevanceScore: c.relevanceScore,
-          categoryMatch: c.categoryMatch,
-          typeGroup: c.typeGroup,
-          included: c.included,
-          exclusionReason: c.exclusionReason,
-          hasWebsite: c.hasValidWebsite,
-          websiteUrl: c.record.site || null,
-          reviews: c.record.reviews,
-          rating: c.record.rating,
-          businessStatus: c.record.business_status,
-        })),
+        competitors: scoredCompetitors.map(c => {
+          const webCheck = competitorWebsiteChecks.find(w => w.name === c.record.name);
+          return {
+            name: c.record.name,
+            category: c.record.type,
+            subtypes: c.record.subtypes,
+            relevanceScore: c.relevanceScore,
+            categoryMatch: c.categoryMatch,
+            typeGroup: c.typeGroup,
+            included: c.included,
+            exclusionReason: c.exclusionReason,
+            hasWebsite: c.hasValidWebsite,
+            websiteUrl: resolveUrl(c.record),
+            websiteReachable: webCheck?.reachable ?? null,
+            websiteTitle: webCheck?.title ?? null,
+            reviews: c.record.reviews,
+            rating: c.record.rating,
+            businessStatus: c.record.business_status,
+          };
+        }),
         benchmarks: {
           totalCandidates: benchmarkData.totalCandidates,
           included: benchmarkData.includedCount,
@@ -212,7 +257,7 @@ app.post('/api/audit/stream', async (req: Request, res: Response) => {
 
     send({ status: `Generating your report…` });
 
-    // ── Step 6: Build prompt and stream LLM ──────────────────────────────────
+    // ── Step 8: Build prompt and stream LLM ──────────────────────────────────
     const includedRecords = includedCompetitors.map(c => c.record);
 
     const userMessage = buildUserMessage(
@@ -222,6 +267,8 @@ app.post('/api/audit/stream', async (req: Request, res: Response) => {
       subjectRecord,
       includedRecords,
       benchmarkData,
+      subjectWebsiteAudit,
+      competitorWebsiteChecks,
     );
 
     const messages: ChatCompletionMessageParam[] = [

@@ -269,6 +269,19 @@ export function isValidWebsite(r: OutscraperRecord): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Resolve the best available URL from an Outscraper record (shared helper)
+// ---------------------------------------------------------------------------
+
+export function resolveUrl(r: OutscraperRecord): string | null {
+  const candidates = [r.site, r.booking_appointment_link, r.menu_link];
+  for (const c of candidates) {
+    const s = (c || '').trim();
+    if (s.length > 5) return s.startsWith('http') ? s : `https://${s}`;
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Public: score and filter the full competitor candidate list
 // ---------------------------------------------------------------------------
 
