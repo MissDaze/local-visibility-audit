@@ -1,0 +1,1168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Local Visibility Audit</title>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --surface2: #222534;
+      --border: #2e3347;
+      --accent: #6366f1;
+      --accent-dim: #4338ca;
+      --text: #e2e8f0;
+      --text-muted: #8892aa;
+      --red: #ef4444;
+      --orange: #f97316;
+      --green: #22c55e;
+      --yellow: #eab308;
+      --radius: 10px;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      min-height: 100vh;
+      line-height: 1.6;
+    }
+
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 32px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    header .logo {
+      width: 32px; height: 32px;
+      background: var(--accent);
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px;
+    }
+
+    header h1 { font-size: 18px; font-weight: 700; letter-spacing: -0.3px; }
+    header span { color: var(--text-muted); font-size: 13px; margin-left: auto; }
+
+    .container { max-width: 860px; margin: 0 auto; padding: 40px 24px 80px; }
+
+    /* Steps nav */
+    .steps {
+      display: flex;
+      gap: 0;
+      margin-bottom: 40px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .step-tab {
+      flex: 1;
+      padding: 14px 20px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-align: center;
+      cursor: pointer;
+      border-right: 1px solid var(--border);
+      transition: background 0.15s, color 0.15s;
+      user-select: none;
+    }
+
+    .step-tab:last-child { border-right: none; }
+    .step-tab.active { background: var(--accent); color: #fff; }
+    .step-tab.done { color: var(--green); }
+
+    /* Cards */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 28px;
+      margin-bottom: 24px;
+    }
+
+    .card-title {
+      font-size: 15px;
+      font-weight: 700;
+      margin-bottom: 4px;
+      display: flex; align-items: center; gap: 8px;
+    }
+
+    .card-title .icon { font-size: 18px; }
+
+    .card-desc { font-size: 13px; color: var(--text-muted); margin-bottom: 20px; }
+
+    /* Form grid */
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .form-grid.cols-1 { grid-template-columns: 1fr; }
+    .form-grid.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+
+    @media (max-width: 600px) {
+      .form-grid, .form-grid.cols-3 { grid-template-columns: 1fr; }
+    }
+
+    .field { display: flex; flex-direction: column; gap: 6px; }
+    .field.span2 { grid-column: span 2; }
+
+    label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    label .required { color: var(--red); margin-left: 2px; }
+    label .hint { font-size: 11px; color: var(--text-muted); text-transform: none; letter-spacing: 0; font-weight: 400; margin-left: 6px; }
+
+    input[type="text"],
+    input[type="number"],
+    input[type="url"],
+    select,
+    textarea {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: 14px;
+      padding: 10px 12px;
+      outline: none;
+      transition: border-color 0.15s;
+      width: 100%;
+      font-family: inherit;
+    }
+
+    input:focus, select:focus, textarea:focus {
+      border-color: var(--accent);
+    }
+
+    select { appearance: none; cursor: pointer; }
+
+    textarea { resize: vertical; min-height: 120px; }
+
+    /* Toggle */
+    .toggle-group {
+      display: flex;
+      gap: 8px;
+    }
+
+    .toggle-btn {
+      flex: 1;
+      padding: 9px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--text-muted);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      text-align: center;
+      transition: all 0.15s;
+    }
+
+    .toggle-btn.yes.active { background: #16a34a22; border-color: var(--green); color: var(--green); }
+    .toggle-btn.no.active { background: #ef444422; border-color: var(--red); color: var(--red); }
+
+    /* Section divider */
+    .section-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 8px;
+      margin: 24px 0 18px;
+    }
+
+    /* Buttons */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      border: none;
+      transition: opacity 0.15s, transform 0.1s;
+    }
+
+    .btn:active { transform: scale(0.98); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: var(--accent-dim); }
+    .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+
+    .btn-row { display: flex; gap: 12px; margin-top: 24px; align-items: center; }
+
+    /* Outscraper instructions */
+    .info-box {
+      background: #6366f111;
+      border: 1px solid #6366f133;
+      border-radius: 8px;
+      padding: 16px 20px;
+      margin-bottom: 20px;
+      font-size: 13px;
+      line-height: 1.7;
+    }
+
+    .info-box ol { padding-left: 20px; margin-top: 8px; }
+    .info-box li { margin-bottom: 6px; }
+    .info-box a { color: var(--accent); }
+    .info-box code { background: var(--surface2); border-radius: 4px; padding: 1px 5px; font-size: 12px; }
+
+    /* Step visibility */
+    .step-panel { display: none; }
+    .step-panel.active { display: block; }
+
+    /* Report area */
+    #report-area {
+      min-height: 200px;
+    }
+
+    .report-loading {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      color: var(--text-muted);
+      padding: 20px 0;
+      font-size: 14px;
+    }
+
+    .spinner {
+      width: 20px; height: 20px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      flex-shrink: 0;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Markdown report styling */
+    #report-content {
+      font-size: 15px;
+      line-height: 1.75;
+    }
+
+    #report-content h1 {
+      font-size: 24px;
+      font-weight: 800;
+      margin-bottom: 6px;
+      margin-top: 32px;
+      letter-spacing: -0.5px;
+    }
+
+    #report-content h2 {
+      font-size: 18px;
+      font-weight: 700;
+      margin-top: 32px;
+      margin-bottom: 12px;
+      color: var(--accent);
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 8px;
+    }
+
+    #report-content h3 {
+      font-size: 15px;
+      font-weight: 700;
+      margin-top: 20px;
+      margin-bottom: 8px;
+    }
+
+    #report-content p { margin-bottom: 12px; }
+
+    #report-content ul, #report-content ol {
+      padding-left: 20px;
+      margin-bottom: 12px;
+    }
+
+    #report-content li { margin-bottom: 6px; }
+
+    #report-content table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 20px;
+      font-size: 14px;
+    }
+
+    #report-content th {
+      background: var(--surface2);
+      padding: 10px 14px;
+      text-align: left;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border);
+    }
+
+    #report-content td {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    #report-content tr:last-child td { border-bottom: none; }
+    #report-content tr:hover td { background: var(--surface2); }
+
+    #report-content strong { font-weight: 700; color: #fff; }
+    #report-content em { color: var(--text-muted); }
+    #report-content hr { border: none; border-top: 1px solid var(--border); margin: 28px 0; }
+    #report-content code { background: var(--surface2); padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+
+    /* Action buttons above report */
+    .report-actions {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+
+    /* Preview chips */
+    .chip {
+      display: inline-block;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 2px 8px;
+      font-size: 12px;
+      color: var(--text-muted);
+      margin: 2px;
+    }
+
+    #competitor-preview { margin-top: 12px; }
+
+    /* Error state */
+    .error-box {
+      background: #ef444411;
+      border: 1px solid #ef444433;
+      border-radius: 8px;
+      padding: 16px;
+      color: var(--red);
+      font-size: 14px;
+    }
+
+    /* Cursor blink while streaming */
+    .cursor {
+      display: inline-block;
+      width: 2px;
+      height: 1em;
+      background: var(--accent);
+      vertical-align: text-bottom;
+      animation: blink 0.8s step-end infinite;
+    }
+    @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">📍</div>
+  <h1>Local Visibility Audit</h1>
+  <span>Powered by AI — Real-time diagnostic report</span>
+</header>
+
+<div class="container">
+
+  <!-- Step nav -->
+  <div class="steps">
+    <div class="step-tab active" id="tab-1" onclick="goStep(1)">1 — Business Details</div>
+    <div class="step-tab" id="tab-2" onclick="goStep(2)">2 — Competitor Data</div>
+    <div class="step-tab" id="tab-3" onclick="goStep(3)">3 — Generate Report</div>
+  </div>
+
+  <!-- ========== STEP 1: Business Details ========== -->
+  <div class="step-panel active" id="step-1">
+    <div class="card">
+      <div class="card-title"><span class="icon">🏢</span> Your Business</div>
+      <div class="card-desc">Enter your business details. The more you fill in, the more precise the report.</div>
+
+      <div class="form-grid cols-3">
+        <div class="field span2" style="grid-column:1/3">
+          <label>Business Name <span class="required">*</span></label>
+          <input type="text" id="b-name" placeholder="e.g. Sunrise Plumbing Co" />
+        </div>
+        <div class="field">
+          <label>Industry <span class="required">*</span></label>
+          <select id="b-industry">
+            <option value="general">General / Other</option>
+            <option value="restaurant">Restaurant / Cafe</option>
+            <option value="home_services">Home Services / Trades</option>
+            <option value="law_firm">Law Firm</option>
+            <option value="medical">Medical / Health</option>
+            <option value="retail">Retail</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Country</label>
+          <select id="b-country">
+            <option value="AU">Australia</option>
+            <option value="US">United States</option>
+            <option value="UK">United Kingdom</option>
+            <option value="NZ">New Zealand</option>
+            <option value="CA">Canada</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Website URL</label>
+          <input type="url" id="b-domain" placeholder="https://yourbusiness.com" />
+        </div>
+      </div>
+
+      <div class="section-label">Google Business Profile</div>
+
+      <div class="form-grid">
+        <div class="field">
+          <label>Total Reviews <span class="required">*</span></label>
+          <input type="number" id="gbp-reviews" placeholder="e.g. 47" min="0" />
+        </div>
+        <div class="field">
+          <label>Average Rating <span class="required">*</span></label>
+          <input type="number" id="gbp-rating" placeholder="e.g. 4.3" min="0" max="5" step="0.1" />
+        </div>
+        <div class="field">
+          <label>Profile Verified?</label>
+          <div class="toggle-group">
+            <div class="toggle-btn yes active" onclick="toggle(this, 'gbp-verified')">✓ Yes</div>
+            <div class="toggle-btn no" onclick="toggle(this, 'gbp-verified')">✗ No</div>
+          </div>
+          <input type="hidden" id="gbp-verified" value="true" />
+        </div>
+        <div class="field">
+          <label>Profile Completeness <span class="hint">/100</span></label>
+          <input type="number" id="gbp-completeness" placeholder="e.g. 75" min="0" max="100" />
+        </div>
+        <div class="field">
+          <label>Number of Photos</label>
+          <input type="number" id="gbp-photos" placeholder="e.g. 12" min="0" />
+        </div>
+        <div class="field">
+          <label>Days Since Last Photo</label>
+          <input type="number" id="gbp-days-photo" placeholder="e.g. 30" min="0" />
+        </div>
+        <div class="field">
+          <label>Reviews (last 90 days)</label>
+          <input type="number" id="gbp-reviews-90d" placeholder="e.g. 8" min="0" />
+        </div>
+        <div class="field">
+          <label>Review Response Rate <span class="hint">0–100%</span></label>
+          <input type="number" id="gbp-response-rate" placeholder="e.g. 60" min="0" max="100" />
+        </div>
+        <div class="field">
+          <label>One-Star Review % <span class="hint">of total</span></label>
+          <input type="number" id="gbp-one-star" placeholder="e.g. 5" min="0" max="100" />
+        </div>
+        <div class="field">
+          <label>Days Since Last Review</label>
+          <input type="number" id="gbp-days-review" placeholder="e.g. 14" min="0" />
+        </div>
+        <div class="field">
+          <label>Number of GBP Categories</label>
+          <input type="number" id="gbp-categories-count" placeholder="e.g. 3" min="0" />
+        </div>
+        <div class="field">
+          <label>Primary GBP Category</label>
+          <input type="text" id="gbp-primary-category" placeholder="e.g. Plumber" />
+        </div>
+        <div class="field">
+          <label>Services Listed (count)</label>
+          <input type="number" id="gbp-services" placeholder="e.g. 8" min="0" />
+        </div>
+        <div class="field">
+          <label>Days Since Last Post <span class="hint">0 = never</span></label>
+          <input type="number" id="gbp-days-post" placeholder="e.g. 45" min="0" />
+        </div>
+        <div class="field">
+          <label>Description Length <span class="hint">characters</span></label>
+          <input type="number" id="gbp-desc-length" placeholder="e.g. 320" min="0" />
+        </div>
+        <div class="field">
+          <label>Attributes Complete? <span class="hint">%</span></label>
+          <input type="number" id="gbp-attributes" placeholder="e.g. 80" min="0" max="100" />
+        </div>
+        <div class="field">
+          <label>Q&A Entries</label>
+          <input type="number" id="gbp-qa" placeholder="e.g. 0" min="0" />
+        </div>
+        <div class="field">
+          <label>Messaging Enabled?</label>
+          <div class="toggle-group">
+            <div class="toggle-btn yes" onclick="toggle(this, 'gbp-messaging')">✓ Yes</div>
+            <div class="toggle-btn no active" onclick="toggle(this, 'gbp-messaging')">✗ No</div>
+          </div>
+          <input type="hidden" id="gbp-messaging" value="false" />
+        </div>
+        <div class="field">
+          <label>Hours Configured?</label>
+          <div class="toggle-group">
+            <div class="toggle-btn yes active" onclick="toggle(this, 'gbp-hours')">✓ Yes</div>
+            <div class="toggle-btn no" onclick="toggle(this, 'gbp-hours')">✗ No</div>
+          </div>
+          <input type="hidden" id="gbp-hours" value="true" />
+        </div>
+        <div class="field">
+          <label>Is Retail Business?</label>
+          <div class="toggle-group">
+            <div class="toggle-btn yes" onclick="toggle(this, 'gbp-retail')">✓ Yes</div>
+            <div class="toggle-btn no active" onclick="toggle(this, 'gbp-retail')">✗ No</div>
+          </div>
+          <input type="hidden" id="gbp-retail" value="false" />
+        </div>
+        <div class="field">
+          <label>Products Listed <span class="hint">if retail</span></label>
+          <input type="number" id="gbp-products" placeholder="e.g. 0" min="0" />
+        </div>
+      </div>
+
+      <div class="section-label">Website</div>
+
+      <div class="form-grid">
+        <div class="field">
+          <label>Mobile Speed Score <span class="hint">PageSpeed 0–100</span></label>
+          <input type="number" id="w-speed" placeholder="e.g. 55" min="0" max="100" />
+        </div>
+        <div class="field">
+          <label>Accessibility Score <span class="hint">Lighthouse 0–100</span></label>
+          <input type="number" id="w-accessibility" placeholder="e.g. 78" min="0" max="100" />
+        </div>
+        <div class="field">
+          <label>Conversion Score <span class="hint">your estimate 0–100</span></label>
+          <input type="number" id="w-conversion" placeholder="e.g. 60" min="0" max="100" />
+        </div>
+        <div class="field">
+          <label>Service Pages (count)</label>
+          <input type="number" id="w-service-pages" placeholder="e.g. 4" min="0" />
+        </div>
+        <div class="field">
+          <label>Service Areas Covered</label>
+          <input type="number" id="w-service-areas" placeholder="e.g. 5" min="0" />
+        </div>
+        <div class="field">
+          <label>Location Pages (count)</label>
+          <input type="number" id="w-location-pages" placeholder="e.g. 2" min="0" />
+        </div>
+        <div class="field">
+          <label>Avg Service Page Words</label>
+          <input type="number" id="w-word-count" placeholder="e.g. 350" min="0" />
+        </div>
+        <div class="field">
+          <label>Days Since Content Update</label>
+          <input type="number" id="w-content-age" placeholder="e.g. 120" min="0" />
+        </div>
+        <div class="field">
+          <label>Pages Without CTA <span class="hint">%</span></label>
+          <input type="number" id="w-no-cta" placeholder="e.g. 40" min="0" max="100" />
+        </div>
+        <div class="field">
+          <label>Broken Internal Links</label>
+          <input type="number" id="w-broken-links" placeholder="e.g. 0" min="0" />
+        </div>
+        <div class="field">
+          <label>Indexed Pages <span class="hint">%</span></label>
+          <input type="number" id="w-indexed" placeholder="e.g. 95" min="0" max="100" />
+        </div>
+        <div class="field">
+          <label>Pages Missing Title/Meta <span class="hint">%</span></label>
+          <input type="number" id="w-no-meta" placeholder="e.g. 10" min="0" max="100" />
+        </div>
+        <div class="field">
+          <label>LCP <span class="hint">seconds</span></label>
+          <input type="number" id="w-lcp" placeholder="e.g. 2.8" step="0.1" min="0" />
+        </div>
+        <div class="field">
+          <label>INP <span class="hint">milliseconds</span></label>
+          <input type="number" id="w-inp" placeholder="e.g. 180" min="0" />
+        </div>
+        <div class="field">
+          <label>CLS <span class="hint">score</span></label>
+          <input type="number" id="w-cls" placeholder="e.g. 0.05" step="0.01" min="0" />
+        </div>
+        <div class="field">
+          <label>Homepage Value Prop <span class="hint">character count</span></label>
+          <input type="number" id="w-homepage-vp" placeholder="e.g. 95" min="0" />
+        </div>
+      </div>
+
+      <!-- Quick toggles row -->
+      <div class="form-grid cols-3" style="margin-top:16px">
+        <div class="field">
+          <label>SSL Certificate</label>
+          <div class="toggle-group">
+            <div class="toggle-btn yes active" onclick="toggle(this, 'w-ssl')">✓ Yes</div>
+            <div class="toggle-btn no" onclick="toggle(this, 'w-ssl')">✗ No</div>
+          </div>
+          <input type="hidden" id="w-ssl" value="true" />
+        </div>
+        <div class="field">
+          <label>Mobile-Friendly</label>
+          <div class="toggle-group">
+            <div class="toggle-btn yes active" onclick="toggle(this, 'w-mobile')">✓ Yes</div>
+            <div class="toggle-btn no" onclick="toggle(this, 'w-mobile')">✗ No</div>
+          </div>
+          <input type="hidden" id="w-mobile" value="true" />
+        </div>
+        <div class="field">
+          <label>Contact Page</label>
+          <div class="toggle-group">
+            <div class="toggle-btn yes active" onclick="toggle(this, 'w-contact')">✓ Yes</div>
+            <div class="toggle-btn no" onclick="toggle(this, 'w-contact')">✗ No</div>
+          </div>
+          <input type="hidden" id="w-contact" value="true" />
+        </div>
+        <div class="field">
+          <label>NAP in Footer</label>
+          <div class="toggle-group">
+            <div class="toggle-btn yes active" onclick="toggle(this, 'w-nap')">✓ Yes</div>
+            <div class="toggle-btn no" onclick="toggle(this, 'w-nap')">✗ No</div>
+          </div>
+          <input type="hidden" id="w-nap" value="true" />
+        </div>
+        <div class="field">
+          <label>Click-to-Call Phone</label>
+          <div class="toggle-group">
+            <div class="toggle-btn yes active" onclick="toggle(this, 'w-phone-click')">✓ Yes</div>
+            <div class="toggle-btn no" onclick="toggle(this, 'w-phone-click')">✗ No</div>
+          </div>
+          <input type="hidden" id="w-phone-click" value="true" />
+        </div>
+        <div class="field">
+          <label>Contact Form</label>
+          <div class="toggle-group">
+            <div class="toggle-btn yes active" onclick="toggle(this, 'w-form')">✓ Yes</div>
+            <div class="toggle-btn no" onclick="toggle(this, 'w-form')">✗ No</div>
+          </div>
+          <input type="hidden" id="w-form" value="true" />
+        </div>
+        <div class="field">
+          <label>Map Embedded</label>
+          <div class="toggle-group">
+            <div class="toggle-btn yes" onclick="toggle(this, 'w-map')">✓ Yes</div>
+            <div class="toggle-btn no active" onclick="toggle(this, 'w-map')">✗ No</div>
+          </div>
+          <input type="hidden" id="w-map" value="false" />
+        </div>
+        <div class="field">
+          <label>Testimonials / Reviews on Site</label>
+          <div class="toggle-group">
+            <div class="toggle-btn yes" onclick="toggle(this, 'w-testimonials')">✓ Yes</div>
+            <div class="toggle-btn no active" onclick="toggle(this, 'w-testimonials')">✗ No</div>
+          </div>
+          <input type="hidden" id="w-testimonials" value="false" />
+        </div>
+        <div class="field">
+          <label>Real Business Photos</label>
+          <div class="toggle-group">
+            <div class="toggle-btn yes" onclick="toggle(this, 'w-real-photos')">✓ Yes</div>
+            <div class="toggle-btn no active" onclick="toggle(this, 'w-real-photos')">✗ No</div>
+          </div>
+          <input type="hidden" id="w-real-photos" value="false" />
+        </div>
+        <div class="field">
+          <label>Trust Signals Near Form</label>
+          <div class="toggle-group">
+            <div class="toggle-btn yes" onclick="toggle(this, 'w-trust-form')">✓ Yes</div>
+            <div class="toggle-btn no active" onclick="toggle(this, 'w-trust-form')">✗ No</div>
+          </div>
+          <input type="hidden" id="w-trust-form" value="false" />
+        </div>
+        <div class="field">
+          <label>Pricing / Quote Info</label>
+          <div class="toggle-group">
+            <div class="toggle-btn yes" onclick="toggle(this, 'w-pricing')">✓ Yes</div>
+            <div class="toggle-btn no active" onclick="toggle(this, 'w-pricing')">✗ No</div>
+          </div>
+          <input type="hidden" id="w-pricing" value="false" />
+        </div>
+        <div class="field">
+          <label>FAQ Section</label>
+          <div class="toggle-group">
+            <div class="toggle-btn yes" onclick="toggle(this, 'w-faq')">✓ Yes</div>
+            <div class="toggle-btn no active" onclick="toggle(this, 'w-faq')">✗ No</div>
+          </div>
+          <input type="hidden" id="w-faq" value="false" />
+        </div>
+        <div class="field">
+          <label>LocalBusiness Schema</label>
+          <div class="toggle-group">
+            <div class="toggle-btn yes" onclick="toggle(this, 'w-schema')">✓ Yes</div>
+            <div class="toggle-btn no active" onclick="toggle(this, 'w-schema')">✗ No</div>
+          </div>
+          <input type="hidden" id="w-schema" value="false" />
+        </div>
+        <div class="field">
+          <label>Experience / Credentials on Site</label>
+          <div class="toggle-group">
+            <div class="toggle-btn yes" onclick="toggle(this, 'w-experience')">✓ Yes</div>
+            <div class="toggle-btn no active" onclick="toggle(this, 'w-experience')">✗ No</div>
+          </div>
+          <input type="hidden" id="w-experience" value="false" />
+        </div>
+        <div class="field">
+          <label>Sitemap Missing?</label>
+          <div class="toggle-group">
+            <div class="toggle-btn yes" onclick="toggle(this, 'w-sitemap-missing')">✗ Missing</div>
+            <div class="toggle-btn no active" onclick="toggle(this, 'w-sitemap-missing')">✓ Present</div>
+          </div>
+          <input type="hidden" id="w-sitemap-missing" value="false" />
+        </div>
+        <div class="field">
+          <label>Robots Blocks Pages?</label>
+          <div class="toggle-group">
+            <div class="toggle-btn yes" onclick="toggle(this, 'w-robots')">✗ Yes</div>
+            <div class="toggle-btn no active" onclick="toggle(this, 'w-robots')">✓ No</div>
+          </div>
+          <input type="hidden" id="w-robots" value="false" />
+        </div>
+      </div>
+
+      <div class="section-label">Citations &amp; Measurement</div>
+
+      <div class="form-grid cols-3">
+        <div class="field">
+          <label>NAP Consistency <span class="hint">%</span></label>
+          <input type="number" id="c-nap" placeholder="e.g. 90" min="0" max="100" />
+        </div>
+        <div class="field">
+          <label>Total Citations</label>
+          <input type="number" id="c-citations" placeholder="e.g. 28" min="0" />
+        </div>
+        <div class="field">
+          <label>Missing Priority Directories</label>
+          <input type="number" id="c-missing" placeholder="e.g. 4" min="0" />
+        </div>
+        <div class="field">
+          <label>Duplicate Listings</label>
+          <input type="number" id="c-duplicates" placeholder="e.g. 0" min="0" />
+        </div>
+      </div>
+
+      <div class="form-grid cols-3" style="margin-top:16px">
+        <div class="field">
+          <label>GA4 Installed?</label>
+          <div class="toggle-group">
+            <div class="toggle-btn yes" onclick="toggle(this, 'm-ga4')">✓ Yes</div>
+            <div class="toggle-btn no active" onclick="toggle(this, 'm-ga4')">✗ No</div>
+          </div>
+          <input type="hidden" id="m-ga4" value="false" />
+        </div>
+        <div class="field">
+          <label>Search Console Verified?</label>
+          <div class="toggle-group">
+            <div class="toggle-btn yes" onclick="toggle(this, 'm-gsc')">✓ Yes</div>
+            <div class="toggle-btn no active" onclick="toggle(this, 'm-gsc')">✗ No</div>
+          </div>
+          <input type="hidden" id="m-gsc" value="false" />
+        </div>
+        <div class="field">
+          <label>Lead Events Tracked?</label>
+          <div class="toggle-group">
+            <div class="toggle-btn yes" onclick="toggle(this, 'm-leads')">✓ Yes</div>
+            <div class="toggle-btn no active" onclick="toggle(this, 'm-leads')">✗ No</div>
+          </div>
+          <input type="hidden" id="m-leads" value="false" />
+        </div>
+        <div class="field">
+          <label>Call Tracking Active?</label>
+          <div class="toggle-group">
+            <div class="toggle-btn yes" onclick="toggle(this, 'm-calls')">✓ Yes</div>
+            <div class="toggle-btn no active" onclick="toggle(this, 'm-calls')">✗ No</div>
+          </div>
+          <input type="hidden" id="m-calls" value="false" />
+        </div>
+        <div class="field">
+          <label>Keyword Tracking Active?</label>
+          <div class="toggle-group">
+            <div class="toggle-btn yes" onclick="toggle(this, 'm-keywords')">✓ Yes</div>
+            <div class="toggle-btn no active" onclick="toggle(this, 'm-keywords')">✗ No</div>
+          </div>
+          <input type="hidden" id="m-keywords" value="false" />
+        </div>
+        <div class="field">
+          <label>Baseline Recorded?</label>
+          <div class="toggle-group">
+            <div class="toggle-btn yes" onclick="toggle(this, 'm-baseline')">✓ Yes</div>
+            <div class="toggle-btn no active" onclick="toggle(this, 'm-baseline')">✗ No</div>
+          </div>
+          <input type="hidden" id="m-baseline" value="false" />
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="validateAndGoStep2()">Next: Add Competitor Data →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== STEP 2: Outscraper Data ========== -->
+  <div class="step-panel" id="step-2">
+    <div class="card">
+      <div class="card-title"><span class="icon">📊</span> Competitor Benchmark Data</div>
+      <div class="card-desc">Export your top 20 competitors from Outscraper. This becomes the industry benchmark for your audit.</div>
+
+      <div class="info-box">
+        <strong>How to get your competitor data:</strong>
+        <ol>
+          <li>Go to <a href="https://outscraper.com/google-maps-scraper/" target="_blank">outscraper.com</a> and use the Google Maps Scraper</li>
+          <li>Search for your industry in your city — e.g. <code>plumber in Melbourne</code></li>
+          <li>Set results to <strong>top 20</strong> and export as <strong>CSV</strong></li>
+          <li>Open the CSV, select all, copy and paste it below</li>
+        </ol>
+        <p style="margin-top:10px; color: var(--text-muted)">Required columns: <code>name</code>, <code>rating</code>, <code>reviews</code>, <code>photos_count</code>, <code>type</code>. Optional but useful: <code>subtypes</code>, <code>reviews_per_score_1</code>, <code>reviews_per_score_5</code>, <code>business_status</code></p>
+      </div>
+
+      <div class="field" style="margin-bottom:16px">
+        <label>Paste Outscraper CSV Data <span class="required">*</span></label>
+        <textarea id="outscraper-csv" placeholder="name,rating,reviews,photos_count,type&#10;Sunrise Plumbing,4.8,142,28,Plumber&#10;..." rows="10"></textarea>
+      </div>
+
+      <div class="field" style="margin-bottom:16px">
+        <label>Days Since Export <span class="hint">0 = today</span></label>
+        <input type="number" id="data-age" placeholder="e.g. 0" min="0" max="365" style="max-width:180px" />
+      </div>
+
+      <div id="competitor-preview"></div>
+
+      <div class="btn-row">
+        <button class="btn btn-secondary" onclick="goStep(1)">← Back</button>
+        <button class="btn btn-primary" onclick="previewAndGoStep3()">Preview &amp; Continue →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== STEP 3: Report ========== -->
+  <div class="step-panel" id="step-3">
+    <div class="card">
+      <div class="card-title"><span class="icon">📄</span> Audit Report</div>
+      <div class="card-desc" id="report-desc">Ready to generate. Click the button to run your AI-powered audit.</div>
+
+      <div class="btn-row" id="generate-row">
+        <button class="btn btn-secondary" onclick="goStep(2)">← Back</button>
+        <button class="btn btn-primary" id="generate-btn" onclick="generateReport()">⚡ Generate Report</button>
+      </div>
+    </div>
+
+    <div class="card" id="report-card" style="display:none">
+      <div id="report-area">
+        <div class="report-loading" id="report-loading" style="display:none">
+          <div class="spinner"></div>
+          <span>Analysing your data and generating report…</span>
+        </div>
+        <div id="report-content"></div>
+      </div>
+
+      <div class="report-actions" id="report-actions" style="display:none; margin-top:24px">
+        <button class="btn btn-secondary" onclick="copyReport()">📋 Copy Markdown</button>
+        <button class="btn btn-secondary" onclick="printReport()">🖨️ Print</button>
+        <button class="btn btn-secondary" onclick="resetAll()">🔄 New Audit</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  let currentStep = 1;
+  let rawMarkdown = '';
+
+  // ── Step navigation ────────────────────────────────────────────────────────
+  function goStep(n) {
+    document.querySelector('.step-panel.active').classList.remove('active');
+    document.getElementById(`step-${n}`).classList.add('active');
+    document.querySelectorAll('.step-tab').forEach((t, i) => {
+      t.classList.remove('active', 'done');
+      if (i + 1 < n) t.classList.add('done');
+      if (i + 1 === n) t.classList.add('active');
+    });
+    currentStep = n;
+  }
+
+  // ── Toggle buttons ─────────────────────────────────────────────────────────
+  function toggle(btn, hiddenId) {
+    const group = btn.closest('.toggle-group');
+    group.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const isYes = btn.classList.contains('yes');
+    document.getElementById(hiddenId).value = isYes ? 'true' : 'false';
+  }
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  function val(id, fallback = 0) {
+    const el = document.getElementById(id);
+    if (!el) return fallback;
+    const v = el.value;
+    if (v === '' || v === null || v === undefined) return fallback;
+    return v;
+  }
+
+  function numVal(id, fallback = 0) {
+    const v = parseFloat(val(id, fallback));
+    return isNaN(v) ? fallback : v;
+  }
+
+  function boolVal(id) {
+    return document.getElementById(id)?.value === 'true';
+  }
+
+  // ── Collect form data into BusinessProfile ─────────────────────────────────
+  function collectBusinessData() {
+    return {
+      id: 'audit-' + Date.now(),
+      name: val('b-name', 'Unknown Business'),
+      industry: val('b-industry', 'general'),
+      country: val('b-country', 'AU'),
+      gbp: {
+        verified: boolVal('gbp-verified'),
+        completenessScore: numVal('gbp-completeness', 70),
+        categories: Array(numVal('gbp-categories-count', 1)).fill(''),
+        primaryCategory: val('b-primary-category') || val('gbp-primary-category', 'Business'),
+        servicesCount: numVal('gbp-services', 0),
+        hoursConfigured: boolVal('gbp-hours'),
+        daysSinceLastPost: numVal('gbp-days-post', 0),
+        attributesCompletionRate: numVal('gbp-attributes', 70) / 100,
+        qaCount: numVal('gbp-qa', 0),
+        messagingEnabled: boolVal('gbp-messaging'),
+        productsCount: numVal('gbp-products', 0),
+        isRetail: boolVal('gbp-retail'),
+        photoCount: numVal('gbp-photos', 0),
+        daysSinceLastPhoto: numVal('gbp-days-photo', 30),
+        descriptionLength: numVal('gbp-desc-length', 0),
+        reviews: {
+          count: numVal('gbp-reviews', 0),
+          rating: numVal('gbp-rating', 0),
+          responseRate: numVal('gbp-response-rate', 0) / 100,
+          oneStarRatio: numVal('gbp-one-star', 0) / 100,
+          daysSinceLastReview: numVal('gbp-days-review', 30),
+          reviewsLast90Days: numVal('gbp-reviews-90d', 0),
+        },
+      },
+      website: {
+        domain: val('b-domain', ''),
+        ssl: boolVal('w-ssl'),
+        mobileFriendly: boolVal('w-mobile'),
+        mobileSpeedScore: numVal('w-speed', 70),
+        contactPageMissing: !boolVal('w-contact'),
+        servicePageCount: numVal('w-service-pages', 1),
+        serviceAreasCount: numVal('w-service-areas', 1),
+        locationPageCount: numVal('w-location-pages', 0),
+        napInFooter: boolVal('w-nap'),
+        embeddedMapPresent: boolVal('w-map'),
+        pricingInfoPresent: boolVal('w-pricing'),
+        quoteProcessExplained: false,
+        homepageValuePropLength: numVal('w-homepage-vp', 80),
+        testimonialsPresent: boolVal('w-testimonials'),
+        reviewWidgetPresent: false,
+        realTeamOrWorkPhotos: boolVal('w-real-photos'),
+        trustSignalsNearForm: boolVal('w-trust-form'),
+        phone: '',
+        phoneClickable: boolVal('w-phone-click'),
+        formPresent: boolVal('w-form'),
+        addressVisible: true,
+        abnOrAcnVisible: false,
+        conversionScore: numVal('w-conversion', 65),
+        importantPagesWithoutCtaRatio: numVal('w-no-cta', 30) / 100,
+        localizedServicePagesCount: 0,
+        topPagesWithLocationTermsRatio: 0.3,
+        daysSinceLastContentUpdate: numVal('w-content-age', 90),
+        faqSectionPresent: boolVal('w-faq'),
+        authorBioOrExperienceSignals: boolVal('w-experience'),
+        avgInternalLinksToServicePages: 3,
+        localBusinessSchemaPresent: boolVal('w-schema'),
+        serviceSchemaCount: 0,
+        locationPagesExist: numVal('w-location-pages', 0) > 0,
+        localLandmarksOrAreaReferencesRatio: 0.2,
+        avgServicePageWordCount: numVal('w-word-count', 400),
+        lcp: numVal('w-lcp', 2.0),
+        inp: numVal('w-inp', 150),
+        cls: numVal('w-cls', 0.05),
+        indexedPagesRatio: numVal('w-indexed', 95) / 100,
+        brokenInternalLinksCount: numVal('w-broken-links', 0),
+        redirectChainsCount: 0,
+        robotsBlocksKeyPages: boolVal('w-robots'),
+        sitemapMissing: boolVal('w-sitemap-missing'),
+        pagesWithMissingTitleOrMetaRatio: numVal('w-no-meta', 10) / 100,
+        accessibilityScore: numVal('w-accessibility', 80),
+      },
+      citations: {
+        napConsistencyScore: numVal('c-nap', 85) / 100,
+        citationCount: numVal('c-citations', 20),
+        missingPriorityDirectoriesCount: numVal('c-missing', 2),
+        duplicateListingCount: numVal('c-duplicates', 0),
+        phone: '',
+        address: '',
+        name: val('b-name', ''),
+      },
+      measurement: {
+        ga4Installed: boolVal('m-ga4'),
+        gscVerified: boolVal('m-gsc'),
+        leadEventsTracked: boolVal('m-leads'),
+        baselineRecorded: boolVal('m-baseline'),
+        localKeywordTrackingEnabled: boolVal('m-keywords'),
+        phoneCallsTracked: boolVal('m-calls'),
+        gbpInsightsAvailable: false,
+        sourceMediumToLeadMapping: false,
+      },
+    };
+  }
+
+  // ── Step 1 → 2 validation ──────────────────────────────────────────────────
+  function validateAndGoStep2() {
+    const name = document.getElementById('b-name').value.trim();
+    const reviews = document.getElementById('gbp-reviews').value;
+    const rating = document.getElementById('gbp-rating').value;
+    if (!name) { alert('Please enter your business name.'); return; }
+    if (!reviews) { alert('Please enter your review count.'); return; }
+    if (!rating) { alert('Please enter your average rating.'); return; }
+    goStep(2);
+  }
+
+  // ── Step 2 → 3: Preview CSV ────────────────────────────────────────────────
+  async function previewAndGoStep3() {
+    const csv = document.getElementById('outscraper-csv').value.trim();
+    if (!csv) { alert('Please paste your Outscraper CSV data.'); return; }
+
+    const preview = document.getElementById('competitor-preview');
+    preview.innerHTML = '<span style="color:var(--text-muted);font-size:13px">Parsing…</span>';
+
+    try {
+      const res = await fetch('/api/parse-outscraper', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ outscraperCsv: csv }),
+      });
+      const data = await res.json();
+      if (data.error) { alert('CSV parse error: ' + data.error); preview.innerHTML = ''; return; }
+
+      let html = `<p style="font-size:13px;color:var(--text-muted);margin-bottom:10px">Found <strong style="color:var(--text)">${data.count}</strong> competitor records:</p>`;
+      html += data.preview.map(r =>
+        `<span class="chip">${r.name} · ${r.rating}★ · ${r.reviews} reviews</span>`
+      ).join('');
+      preview.innerHTML = html;
+    } catch (e) {
+      preview.innerHTML = '<span style="color:var(--text-muted);font-size:13px">Could not preview — CSV will be validated on generate.</span>';
+    }
+
+    goStep(3);
+  }
+
+  // ── Generate Report ────────────────────────────────────────────────────────
+  async function generateReport() {
+    const csv = document.getElementById('outscraper-csv').value.trim();
+    const dataAgeDays = parseInt(document.getElementById('data-age').value || '0');
+    const business = collectBusinessData();
+
+    document.getElementById('generate-row').style.display = 'none';
+    document.getElementById('report-card').style.display = 'block';
+    document.getElementById('report-loading').style.display = 'flex';
+    document.getElementById('report-content').innerHTML = '';
+    document.getElementById('report-actions').style.display = 'none';
+    rawMarkdown = '';
+
+    try {
+      const res = await fetch('/api/audit/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ business, outscraperCsv: csv, dataAgeDays }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Server error' }));
+        showError(err.error || 'Failed to start audit.');
+        return;
+      }
+
+      document.getElementById('report-loading').style.display = 'none';
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const payload = JSON.parse(line.slice(6));
+            if (payload.error) { showError(payload.error); return; }
+            if (payload.done) { onReportComplete(); return; }
+            if (payload.text) {
+              rawMarkdown += payload.text;
+              renderMarkdown(rawMarkdown);
+            }
+          } catch { /* ignore parse errors on incomplete chunks */ }
+        }
+      }
+
+      onReportComplete();
+    } catch (e) {
+      showError(e.message || 'Network error. Is the server running?');
+    }
+  }
+
+  let renderTimer = null;
+  function renderMarkdown(md) {
+    // Throttle rendering slightly for performance
+    if (renderTimer) return;
+    renderTimer = setTimeout(() => {
+      renderTimer = null;
+      const content = document.getElementById('report-content');
+      content.innerHTML = marked.parse(md);
+      // Add blinking cursor at end while streaming
+      const cursor = document.createElement('span');
+      cursor.className = 'cursor';
+      content.appendChild(cursor);
+    }, 30);
+  }
+
+  function onReportComplete() {
+    // Final render without cursor
+    document.getElementById('report-content').innerHTML = marked.parse(rawMarkdown);
+    document.getElementById('report-loading').style.display = 'none';
+    document.getElementById('report-actions').style.display = 'flex';
+    document.getElementById('report-desc').textContent = 'Your audit report is ready.';
+  }
+
+  function showError(msg) {
+    document.getElementById('report-loading').style.display = 'none';
+    document.getElementById('report-content').innerHTML =
+      `<div class="error-box">⚠️ ${msg}</div>`;
+    document.getElementById('generate-row').style.display = 'flex';
+    document.getElementById('report-card').style.display = 'block';
+  }
+
+  // ── Actions ────────────────────────────────────────────────────────────────
+  function copyReport() {
+    navigator.clipboard.writeText(rawMarkdown).then(() => {
+      alert('Report copied to clipboard as Markdown.');
+    });
+  }
+
+  function printReport() { window.print(); }
+
+  function resetAll() {
+    location.reload();
+  }
+</script>
+
+</body>
+</html>
