@@ -249,6 +249,61 @@
       border-radius: 4px; font-size: 13px;
     }
 
+    /* ── Implementation cards ── */
+    #report-content .impl-card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 20px 24px;
+      margin: 12px 0 20px;
+    }
+    #report-content .impl-card > h3 {
+      margin-top: 0;
+      font-size: 14px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    #report-content .impl-diy { border-left: 3px solid var(--accent); }
+    #report-content .impl-diy > h3 { color: var(--accent); }
+    #report-content .impl-dfy { border-left: 3px solid var(--green); }
+    #report-content .impl-dfy > h3 { color: var(--green); }
+
+    /* ── ✓ check list items ── */
+    #report-content .check-list { list-style: none; padding-left: 0; }
+    #report-content .check-item { color: var(--green); }
+
+    /* ── Next Step CTA box ── */
+    #report-content .next-step-content {
+      background: #6366f112;
+      border: 1px solid #6366f135;
+      border-radius: 8px;
+      padding: 16px 20px;
+      margin-bottom: 10px;
+    }
+
+    /* ── Success forecast box ── */
+    #report-content .success-content {
+      background: #22c55e0d;
+      border: 1px solid #22c55e30;
+      border-radius: 8px;
+      padding: 16px 20px;
+      margin-bottom: 10px;
+    }
+
+    /* ── Archetype badge ── */
+    #report-content .archetype-badge {
+      display: inline-block;
+      background: var(--accent);
+      color: #fff;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      padding: 4px 12px;
+      border-radius: 20px;
+      margin-bottom: 10px;
+    }
+
     .cursor {
       display: inline-block; width: 2px; height: 1em;
       background: var(--accent); vertical-align: text-bottom;
@@ -489,9 +544,77 @@
 
   function onComplete() {
     document.getElementById('report-content').innerHTML = marked.parse(rawMarkdown);
+    enhanceReport();
     document.getElementById('report-actions').classList.add('visible');
     document.getElementById('status-bar').classList.remove('visible');
     document.getElementById('generate-btn').disabled = false;
+  }
+
+  // Post-render DOM enhancement — runs once after the full report is streamed.
+  function enhanceReport() {
+    const el = document.getElementById('report-content');
+
+    // 1. Style ✓ check-list items
+    el.querySelectorAll('li').forEach(li => {
+      if (li.textContent.trim().startsWith('✓')) {
+        li.classList.add('check-item');
+        const ul = li.closest('ul');
+        if (ul) ul.classList.add('check-list');
+      }
+    });
+
+    // 2. Wrap Option 1 / Option 2 sections into styled cards
+    el.querySelectorAll('h3').forEach(h3 => {
+      const text = h3.textContent || '';
+      if (/option\s*1/i.test(text)) {
+        wrapToNextBlock(h3, ['H2', 'H3', 'HR'], 'impl-card impl-diy');
+      } else if (/option\s*2/i.test(text)) {
+        wrapToNextBlock(h3, ['H2', 'H3', 'HR'], 'impl-card impl-dfy');
+      }
+    });
+
+    // 3. Style "Next Step" and "What Success Could Look Like" sections
+    el.querySelectorAll('h2').forEach(h2 => {
+      const text = h2.textContent || '';
+      if (/next\s*step/i.test(text)) {
+        styleSectionContent(h2, 'next-step-content');
+      } else if (/what\s*success/i.test(text)) {
+        styleSectionContent(h2, 'success-content');
+      }
+    });
+  }
+
+  // Wraps startEl and its following siblings (up to a stop tag) in a div.
+  function wrapToNextBlock(startEl, stopTags, className) {
+    const wrapper = document.createElement('div');
+    wrapper.className = className;
+    startEl.parentNode.insertBefore(wrapper, startEl);
+    wrapper.appendChild(startEl);
+    let sib = wrapper.nextSibling;
+    while (sib) {
+      if (stopTags.includes(sib.nodeName)) break;
+      const next = sib.nextSibling;
+      wrapper.appendChild(sib);
+      sib = next;
+    }
+  }
+
+  // Wraps the siblings after h2El (up to next H2/HR) in a styled div.
+  function styleSectionContent(h2El, className) {
+    const wrapper = document.createElement('div');
+    wrapper.className = className;
+    const parent = h2El.parentNode;
+    let sib = h2El.nextSibling;
+    // Collect siblings until next h2/hr/h1
+    const children = [];
+    while (sib) {
+      if (['H1', 'H2', 'HR'].includes(sib.nodeName)) break;
+      children.push(sib);
+      sib = sib.nextSibling;
+    }
+    if (!children.length) return;
+    parent.insertBefore(wrapper, children[0]);
+    children.forEach(c => wrapper.appendChild(c));
   }
 
   function showError(msg) {
