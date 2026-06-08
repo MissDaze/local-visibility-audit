@@ -4,7 +4,8 @@ import cors from 'cors';
 import path from 'path';
 import OpenAI from 'openai';
 import { BusinessProfile } from '../types';
-import { parseOutscraperCsv, normalizeOutscraperData } from '../normalizers/outscraper.normalizer';
+import { OutscraperRecord } from '../types/outscraper';
+import { normalizeOutscraperData, parseOutscraperCsv } from '../normalizers/outscraper.normalizer';
 import { SYSTEM_PROMPT, buildUserMessage } from '../llm/prompt-builder';
 
 const app = express();
@@ -14,7 +15,6 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, '../../public')));
 
-// OpenRouter uses the OpenAI-compatible API.
 const openrouter = new OpenAI({
   apiKey: process.env.OPENROUTER_API_KEY || '',
   baseURL: 'https://openrouter.ai/api/v1',
@@ -27,20 +27,103 @@ const openrouter = new OpenAI({
 const MODEL = process.env.OPENROUTER_MODEL || 'google/gemini-2.0-flash-exp:free';
 
 // ---------------------------------------------------------------------------
+// POST /api/fetch-competitors
+// Calls the Outscraper Google Maps API and returns up to 20 competitor records.
+// Body: { query: string, limit?: number }
+// ---------------------------------------------------------------------------
+app.post('/api/fetch-competitors', async (req: Request, res: Response) => {
+  try {
+    const { query, limit = 20 } = req.body as { query: string; limit?: number };
+
+    if (!query?.trim()) {
+      res.status(400).json({ error: 'query is required (e.g. "plumber in Melbourne")' });
+      return;
+    }
+
+    if (!process.env.OUTSCRAPER_API_KEY) {
+      res.status(500).json({
+        error: 'OUTSCRAPER_API_KEY is not set. Add it to your .env file or Railway variables.',
+      });
+      return;
+    }
+
+    const url =
+      `https://api.app.outscraper.com/maps/search-v3` +
+      `?query=${encodeURIComponent(query.trim())}` +
+      `&limit=${Math.min(limit, 20)}` +
+      `&async=false` +
+      `&language=en`;
+
+    const apiRes = await fetch(url, {
+      headers: {
+        'X-API-KEY': process.env.OUTSCRAPER_API_KEY,
+        'Accept': 'application/json',
+      },
+    });
+
+    if (!apiRes.ok) {
+      const text = await apiRes.text();
+      res.status(502).json({ error: `Outscraper API error ${apiRes.status}: ${text.slice(0, 200)}` });
+      return;
+    }
+
+    const body = await apiRes.json() as {
+      status: string;
+      data?: OutscraperRecord[][];
+      message?: string;
+    };
+
+    if (body.status !== 'Success' || !body.data) {
+      res.status(502).json({ error: body.message || 'Outscraper returned an unexpected response.' });
+      return;
+    }
+
+    // data is an array-of-arrays (one inner array per query string sent)
+    const records: OutscraperRecord[] = body.data[0] ?? [];
+
+    if (!records.length) {
+      res.status(404).json({ error: 'No results found for that query. Try a broader search term.' });
+      return;
+    }
+
+    const preview = records.map(r => ({
+      name: r.name,
+      rating: r.rating,
+      reviews: r.reviews,
+      photos: r.photos_count,
+      category: r.type,
+    }));
+
+    res.json({ count: records.length, records, preview });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Failed to fetch competitors';
+    console.error('Outscraper fetch error:', msg);
+    res.status(500).json({ error: msg });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // POST /api/audit/stream
-// Body: { business: BusinessProfile, outscraperCsv: string, dataAgeDays?: number }
-// Response: text/event-stream — streams the LLM report in real time
+// Accepts business details + competitor records (JSON from Outscraper API).
+// Streams the LLM report via Server-Sent Events.
+//
+// Body: {
+//   business: BusinessProfile,
+//   outscraperRecords: OutscraperRecord[],   ← from /api/fetch-competitors
+//   dataAgeDays?: number
+// }
 // ---------------------------------------------------------------------------
 app.post('/api/audit/stream', async (req: Request, res: Response) => {
   try {
-    const { business, outscraperCsv, dataAgeDays = 0 } = req.body as {
+    const { business, outscraperRecords, outscraperCsv, dataAgeDays = 0 } = req.body as {
       business: BusinessProfile;
-      outscraperCsv: string;
+      outscraperRecords?: OutscraperRecord[];
+      outscraperCsv?: string;      // legacy fallback
       dataAgeDays?: number;
     };
 
-    if (!business || !outscraperCsv) {
-      res.status(400).json({ error: 'business and outscraperCsv are required.' });
+    if (!business) {
+      res.status(400).json({ error: 'business is required.' });
       return;
     }
 
@@ -51,32 +134,31 @@ app.post('/api/audit/stream', async (req: Request, res: Response) => {
       return;
     }
 
-    // Parse Outscraper CSV
-    let rawRecords;
-    try {
+    // Accept either pre-fetched JSON records or a raw CSV string (backward compat)
+    let rawRecords: OutscraperRecord[];
+    if (outscraperRecords?.length) {
+      rawRecords = outscraperRecords;
+    } else if (outscraperCsv) {
       rawRecords = parseOutscraperCsv(outscraperCsv);
-    } catch {
-      res.status(400).json({ error: 'Failed to parse Outscraper CSV. Check the format.' });
+    } else {
+      res.status(400).json({ error: 'outscraperRecords or outscraperCsv is required.' });
       return;
     }
 
     if (rawRecords.length < 2) {
-      res.status(400).json({ error: 'Outscraper CSV must contain at least 2 competitor rows.' });
+      res.status(400).json({ error: 'Need at least 2 competitor records to benchmark.' });
       return;
     }
 
-    // Normalize into benchmark averages + percentiles
     let competitors;
     try {
       competitors = normalizeOutscraperData(rawRecords, business);
       competitors.dataAgeDays = dataAgeDays;
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Failed to normalize competitor data.';
-      res.status(400).json({ error: msg });
+      res.status(400).json({ error: e instanceof Error ? e.message : 'Normalisation error.' });
       return;
     }
 
-    // Human-readable competitor list for the prompt
     const outscraperSummary = rawRecords
       .slice(0, 20)
       .map((r, i) =>
@@ -94,7 +176,6 @@ app.post('/api/audit/stream', async (req: Request, res: Response) => {
 
     const send = (payload: object) => res.write(`data: ${JSON.stringify(payload)}\n\n`);
 
-    // Stream from OpenRouter
     try {
       const stream = await openrouter.chat.completions.create({
         model: MODEL,
@@ -131,30 +212,7 @@ app.post('/api/audit/stream', async (req: Request, res: Response) => {
   }
 });
 
-// ---------------------------------------------------------------------------
-// POST /api/parse-outscraper
-// Preview parsed competitor rows without running the full audit.
-// ---------------------------------------------------------------------------
-app.post('/api/parse-outscraper', (req: Request, res: Response) => {
-  try {
-    const { outscraperCsv } = req.body as { outscraperCsv: string };
-    if (!outscraperCsv) { res.status(400).json({ error: 'outscraperCsv required' }); return; }
-
-    const records = parseOutscraperCsv(outscraperCsv);
-    const preview = records.slice(0, 20).map(r => ({
-      name: r.name,
-      rating: r.rating,
-      reviews: r.reviews,
-      photos: r.photos_count,
-      category: r.type,
-    }));
-    res.json({ count: records.length, preview });
-  } catch (e: unknown) {
-    res.status(400).json({ error: e instanceof Error ? e.message : 'Parse error' });
-  }
-});
-
-// Serve the SPA for all other routes
+// Serve the SPA
 app.get('*', (_req, res) => {
   res.sendFile(path.join(__dirname, '../../public/index.html'));
 });
@@ -162,9 +220,8 @@ app.get('*', (_req, res) => {
 app.listen(PORT, () => {
   console.log(`Local Audit Engine → http://localhost:${PORT}`);
   console.log(`Model: ${MODEL}`);
-  if (!process.env.OPENROUTER_API_KEY) {
-    console.warn('⚠  OPENROUTER_API_KEY not set — audits will fail until you add it.');
-  }
+  if (!process.env.OPENROUTER_API_KEY) console.warn('⚠  OPENROUTER_API_KEY not set');
+  if (!process.env.OUTSCRAPER_API_KEY) console.warn('⚠  OUTSCRAPER_API_KEY not set');
 });
 
 export default app;

@@ -808,38 +808,44 @@
     </div>
   </div>
 
-  <!-- ========== STEP 2: Outscraper Data ========== -->
+  <!-- ========== STEP 2: Competitor Search ========== -->
   <div class="step-panel" id="step-2">
     <div class="card">
-      <div class="card-title"><span class="icon">📊</span> Competitor Benchmark Data</div>
-      <div class="card-desc">Export your top 20 competitors from Outscraper. This becomes the industry benchmark for your audit.</div>
+      <div class="card-title"><span class="icon">📊</span> Find Your Competitors</div>
+      <div class="card-desc">Enter the search query you'd use to find your competitors on Google Maps. The app fetches the top 20 automatically via Outscraper.</div>
 
       <div class="info-box">
-        <strong>How to get your competitor data:</strong>
-        <ol>
-          <li>Go to <a href="https://outscraper.com/google-maps-scraper/" target="_blank">outscraper.com</a> and use the Google Maps Scraper</li>
-          <li>Search for your industry in your city — e.g. <code>plumber in Melbourne</code></li>
-          <li>Set results to <strong>top 20</strong> and export as <strong>CSV</strong></li>
-          <li>Open the CSV, select all, copy and paste it below</li>
-        </ol>
-        <p style="margin-top:10px; color: var(--text-muted)">Required columns: <code>name</code>, <code>rating</code>, <code>reviews</code>, <code>photos_count</code>, <code>type</code>. Optional but useful: <code>subtypes</code>, <code>reviews_per_score_1</code>, <code>reviews_per_score_5</code>, <code>business_status</code></p>
+        <strong>Search tips:</strong>
+        <ul style="padding-left:18px; margin-top:8px">
+          <li>Use the format: <code>[service] in [city]</code></li>
+          <li>Examples: <code>plumber in Melbourne</code> · <code>family law firm in Sydney</code> · <code>italian restaurant in Brisbane CBD</code></li>
+          <li>Be as specific as you would when searching on Google Maps</li>
+          <li>Results are your benchmark — the top 20 businesses in your local market</li>
+        </ul>
       </div>
 
-      <div class="field" style="margin-bottom:16px">
-        <label>Paste Outscraper CSV Data <span class="required">*</span></label>
-        <textarea id="outscraper-csv" placeholder="name,rating,reviews,photos_count,type&#10;Sunrise Plumbing,4.8,142,28,Plumber&#10;..." rows="10"></textarea>
+      <div class="field" style="margin-bottom:20px">
+        <label>Competitor Search Query <span class="required">*</span></label>
+        <div style="display:flex; gap:10px; align-items:flex-end">
+          <input type="text" id="outscraper-query" placeholder="e.g. plumber in Melbourne" style="flex:1" />
+          <button class="btn btn-primary" id="fetch-btn" onclick="fetchCompetitors()" style="white-space:nowrap">
+            🔍 Search
+          </button>
+        </div>
       </div>
 
-      <div class="field" style="margin-bottom:16px">
-        <label>Days Since Export <span class="hint">0 = today</span></label>
-        <input type="number" id="data-age" placeholder="e.g. 0" min="0" max="365" style="max-width:180px" />
+      <div id="fetch-status" style="display:none" class="report-loading">
+        <div class="spinner"></div>
+        <span id="fetch-status-text">Fetching top 20 competitors from Outscraper…</span>
       </div>
 
       <div id="competitor-preview"></div>
 
-      <div class="btn-row">
+      <div class="btn-row" id="step2-nav">
         <button class="btn btn-secondary" onclick="goStep(1)">← Back</button>
-        <button class="btn btn-primary" onclick="previewAndGoStep3()">Preview &amp; Continue →</button>
+        <button class="btn btn-primary" id="step2-continue" onclick="goStep(3)" disabled style="opacity:0.4;cursor:not-allowed">
+          Continue to Report →
+        </button>
       </div>
     </div>
   </div>
@@ -878,6 +884,7 @@
 <script>
   let currentStep = 1;
   let rawMarkdown = '';
+  let fetchedRecords = [];   // OutscraperRecord[] from /api/fetch-competitors
 
   // ── Step navigation ────────────────────────────────────────────────────────
   function goStep(n) {
@@ -1030,39 +1037,69 @@
     goStep(2);
   }
 
-  // ── Step 2 → 3: Preview CSV ────────────────────────────────────────────────
-  async function previewAndGoStep3() {
-    const csv = document.getElementById('outscraper-csv').value.trim();
-    if (!csv) { alert('Please paste your Outscraper CSV data.'); return; }
+  // ── Step 2: Fetch competitors from Outscraper API ─────────────────────────
+  async function fetchCompetitors() {
+    const query = document.getElementById('outscraper-query').value.trim();
+    if (!query) { alert('Please enter a search query.'); return; }
 
+    const fetchBtn = document.getElementById('fetch-btn');
+    const status = document.getElementById('fetch-status');
     const preview = document.getElementById('competitor-preview');
-    preview.innerHTML = '<span style="color:var(--text-muted);font-size:13px">Parsing…</span>';
+    const continueBtn = document.getElementById('step2-continue');
+
+    fetchBtn.disabled = true;
+    status.style.display = 'flex';
+    preview.innerHTML = '';
+    continueBtn.disabled = true;
+    continueBtn.style.opacity = '0.4';
+    continueBtn.style.cursor = 'not-allowed';
+    fetchedRecords = [];
 
     try {
-      const res = await fetch('/api/parse-outscraper', {
+      const res = await fetch('/api/fetch-competitors', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ outscraperCsv: csv }),
+        body: JSON.stringify({ query, limit: 20 }),
       });
-      const data = await res.json();
-      if (data.error) { alert('CSV parse error: ' + data.error); preview.innerHTML = ''; return; }
 
-      let html = `<p style="font-size:13px;color:var(--text-muted);margin-bottom:10px">Found <strong style="color:var(--text)">${data.count}</strong> competitor records:</p>`;
-      html += data.preview.map(r =>
-        `<span class="chip">${r.name} · ${r.rating}★ · ${r.reviews} reviews</span>`
+      const data = await res.json();
+      status.style.display = 'none';
+      fetchBtn.disabled = false;
+
+      if (data.error) {
+        preview.innerHTML = `<div class="error-box">⚠️ ${data.error}</div>`;
+        return;
+      }
+
+      fetchedRecords = data.records || [];
+
+      let html = `<p style="font-size:13px;color:var(--text-muted);margin-bottom:12px">
+        Found <strong style="color:var(--text)">${data.count}</strong> competitors for <em>"${query}"</em>:
+      </p>`;
+      html += (data.preview || []).map(r =>
+        `<span class="chip">${r.name || '?'} · ${r.rating ?? '?'}★ · ${r.reviews ?? '?'} reviews</span>`
       ).join('');
       preview.innerHTML = html;
-    } catch (e) {
-      preview.innerHTML = '<span style="color:var(--text-muted);font-size:13px">Could not preview — CSV will be validated on generate.</span>';
-    }
 
-    goStep(3);
+      // Unlock continue button
+      continueBtn.disabled = false;
+      continueBtn.style.opacity = '1';
+      continueBtn.style.cursor = 'pointer';
+    } catch (e) {
+      status.style.display = 'none';
+      fetchBtn.disabled = false;
+      preview.innerHTML = `<div class="error-box">⚠️ Network error: ${e.message}</div>`;
+    }
   }
+
+  // Also allow pressing Enter in the query field
+  document.addEventListener('DOMContentLoaded', () => {
+    const q = document.getElementById('outscraper-query');
+    if (q) q.addEventListener('keydown', e => { if (e.key === 'Enter') fetchCompetitors(); });
+  });
 
   // ── Generate Report ────────────────────────────────────────────────────────
   async function generateReport() {
-    const csv = document.getElementById('outscraper-csv').value.trim();
-    const dataAgeDays = parseInt(document.getElementById('data-age').value || '0');
     const business = collectBusinessData();
 
     document.getElementById('generate-row').style.display = 'none';
@@ -1076,7 +1113,7 @@
       const res = await fetch('/api/audit/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ business, outscraperCsv: csv, dataAgeDays }),
+        body: JSON.stringify({ business, outscraperRecords: fetchedRecords, dataAgeDays: 0 }),
       });
 
       if (!res.ok) {
