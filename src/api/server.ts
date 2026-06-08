@@ -3,6 +3,7 @@ import express, { Request, Response } from 'express';
 import cors from 'cors';
 import path from 'path';
 import OpenAI from 'openai';
+import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 import { OutscraperRecord } from '../types/outscraper';
 import { SYSTEM_PROMPT, buildUserMessage } from '../llm/prompt-builder';
 
@@ -23,6 +24,13 @@ const openrouter = new OpenAI({
 });
 
 const MODEL = process.env.OPENROUTER_MODEL || 'google/gemini-2.0-flash-exp:free';
+
+// Free-tier fallback chain — tried in order if the primary model is rate-limited.
+const FALLBACK_MODELS = [
+  'meta-llama/llama-3.3-70b-instruct:free',
+  'deepseek/deepseek-chat:free',
+  'mistralai/mistral-7b-instruct:free',
+];
 
 // ---------------------------------------------------------------------------
 // Outscraper helper — fetch up to `limit` Google Maps results for a query.
@@ -158,21 +166,48 @@ app.post('/api/audit/stream', async (req: Request, res: Response) => {
       competitorRecords,
     );
 
-    const stream = await openrouter.chat.completions.create({
-      model: MODEL,
-      max_tokens: 4096,
-      stream: true,
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: userMessage },
-      ],
-    });
+    const messages: ChatCompletionMessageParam[] = [
+      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'user', content: userMessage },
+    ];
 
-    for await (const chunk of stream) {
-      const text = chunk.choices[0]?.delta?.content;
-      if (text) send({ text });
-      if (chunk.choices[0]?.finish_reason) break;
+    const modelsToTry = [MODEL, ...FALLBACK_MODELS.filter(m => m !== MODEL)];
+    let streamed = false;
+
+    for (const model of modelsToTry) {
+      try {
+        if (model !== modelsToTry[0]) {
+          send({ status: `Switching to fallback model (${model})…` });
+        }
+
+        const stream = await openrouter.chat.completions.create({
+          model,
+          max_tokens: 4096,
+          stream: true,
+          messages,
+        });
+
+        for await (const chunk of stream) {
+          const text = chunk.choices[0]?.delta?.content;
+          if (text) send({ text });
+          if (chunk.choices[0]?.finish_reason) break;
+        }
+
+        streamed = true;
+        break;
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        const isRateLimit = /concurrency|rate.?limit|429|capacity/i.test(msg);
+        if (isRateLimit && model !== modelsToTry[modelsToTry.length - 1]) {
+          send({ status: `Model busy, trying next…` });
+          await new Promise(r => setTimeout(r, 1500));
+          continue;
+        }
+        throw e;
+      }
     }
+
+    if (!streamed) throw new Error('All models are currently busy. Please try again in a moment.');
 
     send({ done: true });
     res.end();
