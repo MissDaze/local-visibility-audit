@@ -247,16 +247,25 @@ function scoreRelevance(
 }
 
 // ---------------------------------------------------------------------------
-// Website URL validator (format check only — no HTTP requests)
+// Website detection — checks site, booking link, and menu link fields.
+// Outscraper often leaves site= empty even when a website exists; we check
+// every URL-bearing field so we don't falsely conclude "no website".
 // ---------------------------------------------------------------------------
 
-export function isValidWebsite(url: string | undefined): boolean {
-  if (!url) return false;
-  const s = url.trim();
-  if (s.length < 5) return false;
-  return /^https?:\/\/.{3,}/i.test(s) ||
-    /^www\..{3,}/i.test(s) ||
-    /^[a-z0-9][a-z0-9-]*\.[a-z]{2,}/i.test(s);
+function looksLikeUrl(s: string): boolean {
+  const t = s.trim();
+  if (t.length < 5) return false;
+  return /^https?:\/\/.{3,}/i.test(t) ||
+    /^www\..{3,}/i.test(t) ||
+    /^[a-z0-9][a-z0-9-]*\.[a-z]{2,}/i.test(t);
+}
+
+export function isValidWebsite(r: OutscraperRecord): boolean {
+  return (
+    looksLikeUrl(r.site || '') ||
+    looksLikeUrl(r.booking_appointment_link || '') ||
+    looksLikeUrl(r.menu_link || '')
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -270,7 +279,7 @@ export function scoreAndFilterCompetitors(
 ): ScoredCompetitor[] {
   return candidates.map(c => {
     const { score, categoryMatch, typeGroup } = scoreRelevance(subject, c);
-    const hasValidWebsite = isValidWebsite(c.site);
+    const hasValidWebsite = isValidWebsite(c);
 
     let exclusionReason: string | null = null;
 

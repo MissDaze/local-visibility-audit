@@ -1,5 +1,5 @@
 import { OutscraperRecord } from '../types/outscraper';
-import { ScoredCompetitor } from './relevance';
+import { ScoredCompetitor, isValidWebsite } from './relevance';
 
 export interface BenchmarkData {
   // Sample
@@ -149,14 +149,16 @@ export function computeBenchmarks(
   // Website
   if (withWebsites > 0) {
     constraints.push(
-      `CONSTRAINT — WEBSITE: ${withWebsites} of ${included.length} relevant competitors have validated websites. ` +
+      `CONSTRAINT — WEBSITE: ${withWebsites} of ${included.length} relevant competitors have detected websites. ` +
       `Do NOT state that competitors lack websites or that "none have websites". ` +
-      `The correct validated figure is ${withWebsites} with websites, ${withoutWebsites} without.`,
+      `Correct figure: ${withWebsites} with a detected website, ${withoutWebsites} with no URL detected.`,
     );
-  } else if (included.length > 0) {
+  } else {
+    // Even 0 detected ≠ confirmed absent — Outscraper often omits the site field
     constraints.push(
-      `VALIDATED — WEBSITE: 0 of ${included.length} included competitors have a detected website. ` +
-      `This claim IS supported by the data.`,
+      `CAUTION — WEBSITE: No website URLs were detected in the Outscraper data for the ${included.length} included competitors. ` +
+      `However, Outscraper frequently does not return the site field even when a website exists. ` +
+      `Do NOT state definitively that competitors have no website. Use "website not detected in data" language instead.`,
     );
   }
 

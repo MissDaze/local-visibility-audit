@@ -10,6 +10,7 @@ export const SYSTEM_PROMPT = `You are a senior local business visibility consult
 2. Every number in the report must come directly from the data. If you calculate an average from competitor data, that is allowed. If you rank the business among competitors, that is allowed. Do not invent.
 3. Tone: professional, consultative, frank. Never aggressive, never salesy, never sycophantic.
 4. The report arc must feel like: Diagnosis → Evidence → Recommended actions → Implementation options.
+5. WEBSITE DATA RELIABILITY: Outscraper frequently does not return website URLs even when a business has one. An empty or missing site field does NOT confirm the business has no website. Never state definitively that a business or its competitors have no website based solely on a missing URL field. Use language like "no website was detected in the data" rather than "has no website". Only make positive website claims when a URL is actually present in the data.
 
 ## INTERNAL PRE-ANALYSIS (do not output this — use it to shape your writing)
 Before writing a single word, develop these four answers from the data:
@@ -271,7 +272,13 @@ function formatRecord(r: OutscraperRecord, index?: number): string {
     r.description
       ? `   Description: ${String(r.description).slice(0, 150)}…`
       : `   Description: missing`,
-    r.site ? `   Website: yes (${r.site})` : `   Website: none listed`,
+    r.site
+      ? `   Website: yes (${r.site})`
+      : r.booking_appointment_link
+        ? `   Website/booking: yes (${r.booking_appointment_link})`
+        : r.menu_link
+          ? `   Website/menu: yes (${r.menu_link})`
+          : `   Website: not detected in data`,
     r.phone ? `   Phone: ${r.phone}` : `   Phone: not listed`,
     r.reviews_per_score_1 !== undefined
       ? `   1★ reviews: ${r.reviews_per_score_1} | 5★ reviews: ${r.reviews_per_score_5 ?? '?'}`
@@ -342,11 +349,20 @@ ${benchmarks.constraints.length
 You are REQUIRED to honour all CONSTRAINT and VALIDATED lines above when writing findings and rankings.
 Violating a CONSTRAINT line means the report contains a factual error.`;
 
+  const subjectWebsiteNote = subjectRecord?.site
+    ? `CONFIRMED — SUBJECT WEBSITE: The subject business has a detected website: ${subjectRecord.site}. ` +
+      `Do NOT state this business has no website.`
+    : `CAUTION — SUBJECT WEBSITE: No website URL was returned by Outscraper for this business. ` +
+      `This is a common data gap — do NOT state the business has no website. ` +
+      `If website absence is relevant, use "no website was detected in the data" language.`;
+
   return `Generate a complete Business Growth Assessment for this business.
 
 **Business name:** ${businessName}
 **Location:** ${city}
 **Industry:** ${industry || 'derive from the data'}
+
+⚠ ${subjectWebsiteNote}
 
 ${subjectSection}
 
