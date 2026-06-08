@@ -23,12 +23,12 @@ const openrouter = new OpenAI({
   },
 });
 
-const MODEL = process.env.OPENROUTER_MODEL || 'google/gemini-2.0-flash-exp:free';
+const MODEL = process.env.OPENROUTER_MODEL || 'meta-llama/llama-3.3-70b-instruct:free';
 
 // Free-tier fallback chain — tried in order if the primary model is rate-limited.
 const FALLBACK_MODELS = [
-  'meta-llama/llama-3.3-70b-instruct:free',
   'deepseek/deepseek-chat:free',
+  'google/gemini-2.0-flash-thinking-exp:free',
   'mistralai/mistral-7b-instruct:free',
 ];
 
