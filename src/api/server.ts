@@ -32,11 +32,14 @@ const openrouter = new OpenAI({
   },
 });
 
-const MODEL = process.env.OPENROUTER_MODEL || 'nvidia/nemotron-nano-12b-v2-vl:free';
+// Paid model (user-selected: qwen3.5-122b-a10b, $0.26/1M input, $2.08/1M
+// output as of 2026-07-16). Free-tier ":free" models were unreliable in
+// production (see repo history); a paid model isn't subject to the same
+// throttling, and this still costs a fraction of a cent per report.
+const MODEL = process.env.OPENROUTER_MODEL || 'qwen/qwen3.5-122b-a10b';
 
 const FALLBACK_MODELS = [
-  'qwen/qwen3-next-80b-a3b-instruct:free',
-  'meta-llama/llama-3.3-70b-instruct:free',
+  'qwen/qwen-2.5-7b-instruct',
 ];
 
 // ---------------------------------------------------------------------------
