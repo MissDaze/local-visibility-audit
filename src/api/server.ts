@@ -285,7 +285,7 @@ app.post('/api/audit/stream', async (req: Request, res: Response) => {
       for (const model of modelsToTry) {
         try {
           if (!(pass === 1 && model === modelsToTry[0])) {
-            send({ status: `Switching to fallback model (${model})…` });
+            send({ status: `MARKER-9f31 Switching to fallback model (${model})…` });
           }
 
           const stream = await openrouter.chat.completions.create({
