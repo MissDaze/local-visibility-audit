@@ -32,10 +32,10 @@ const openrouter = new OpenAI({
   },
 });
 
-const MODEL = process.env.OPENROUTER_MODEL || 'zzz-canary-primary-9f31:free';
+const MODEL = process.env.OPENROUTER_MODEL || 'nvidia/nemotron-nano-12b-v2-vl:free';
 
 const FALLBACK_MODELS = [
-  'zzz-canary-fallback-a1b2:free',
+  'qwen/qwen3-next-80b-a3b-instruct:free',
   'meta-llama/llama-3.3-70b-instruct:free',
 ];
 
@@ -285,7 +285,7 @@ app.post('/api/audit/stream', async (req: Request, res: Response) => {
       for (const model of modelsToTry) {
         try {
           if (!(pass === 1 && model === modelsToTry[0])) {
-            send({ status: `MARKER-9f31 Switching to fallback model (${model})…` });
+            send({ status: `Switching to fallback model (${model})…` });
           }
 
           const stream = await openrouter.chat.completions.create({
