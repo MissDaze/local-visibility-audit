@@ -32,13 +32,11 @@ const openrouter = new OpenAI({
   },
 });
 
-const MODEL = process.env.OPENROUTER_MODEL || 'openai/gpt-oss-120b:free';
+const MODEL = process.env.OPENROUTER_MODEL || 'nvidia/nemotron-nano-12b-v2-vl:free';
 
 const FALLBACK_MODELS = [
-  'nvidia/nemotron-nano-12b-v2-vl:free',
   'qwen/qwen3-next-80b-a3b-instruct:free',
-  'google/gemini-2.5-flash:free',
-  'deepseek/deepseek-r1:free',
+  'meta-llama/llama-3.3-70b-instruct:free',
 ];
 
 // ---------------------------------------------------------------------------
@@ -162,7 +160,7 @@ app.post('/api/audit/stream', async (req: Request, res: Response) => {
 
     let scoredCompetitors: ScoredCompetitor[] = [];
     if (subjectRecord && filteredCandidates.length > 0) {
-      scoredCompetitors = scoreAndFilterCompetitors(subjectRecord, filteredCandidates, 70);
+      scoredCompetitors = scoreAndFilterCompetitors(subjectRecord, filteredCandidates, 45);
     } else {
       scoredCompetitors = filteredCandidates.map(r => ({
         record: r,
@@ -302,12 +300,18 @@ app.post('/api/audit/stream', async (req: Request, res: Response) => {
         break;
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
-        const isRateLimit = /concurrency|rate.?limit|429|capacity|endpoint/i.test(msg);
-        if (isRateLimit && model !== modelsToTry[modelsToTry.length - 1]) {
-          send({ status: `Model busy, trying next…` });
-          await new Promise(r => setTimeout(r, 1500));
+        const isLastModel = model === modelsToTry[modelsToTry.length - 1];
+
+        if (!isLastModel) {
+          // Any per-model failure (deprecated slug, rate limit, capacity, etc.)
+          // falls through to the next candidate — a single stale/busy model
+          // shouldn't kill the whole report when working fallbacks exist.
+          const isRateLimit = /concurrency|rate.?limit|429|capacity/i.test(msg);
+          send({ status: `Model unavailable, trying next…` });
+          if (isRateLimit) await new Promise(r => setTimeout(r, 1500));
           continue;
         }
+
         throw e;
       }
     }

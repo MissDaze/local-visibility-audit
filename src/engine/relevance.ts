@@ -288,7 +288,7 @@ export function resolveUrl(r: OutscraperRecord): string | null {
 export function scoreAndFilterCompetitors(
   subject: OutscraperRecord,
   candidates: OutscraperRecord[],
-  threshold = 70,
+  threshold = 45,
 ): ScoredCompetitor[] {
   return candidates.map(c => {
     const { score, categoryMatch, typeGroup } = scoreRelevance(subject, c);
