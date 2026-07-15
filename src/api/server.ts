@@ -300,6 +300,7 @@ app.post('/api/audit/stream', async (req: Request, res: Response) => {
         break;
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
+        console.error(`[llm] model=${model} failed:`, JSON.stringify(e, Object.getOwnPropertyNames(e as object)));
         const isLastModel = model === modelsToTry[modelsToTry.length - 1];
 
         if (!isLastModel) {
