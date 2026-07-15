@@ -32,10 +32,10 @@ const openrouter = new OpenAI({
   },
 });
 
-const MODEL = process.env.OPENROUTER_MODEL || 'nvidia/nemotron-nano-12b-v2-vl:free';
+const MODEL = process.env.OPENROUTER_MODEL || 'zzz-canary-primary-9f31:free';
 
 const FALLBACK_MODELS = [
-  'qwen/qwen3-next-80b-a3b-instruct:free',
+  'zzz-canary-fallback-a1b2:free',
   'meta-llama/llama-3.3-70b-instruct:free',
 ];
 
