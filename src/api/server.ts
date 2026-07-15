@@ -277,48 +277,55 @@ app.post('/api/audit/stream', async (req: Request, res: Response) => {
 
     const modelsToTry = [MODEL, ...FALLBACK_MODELS.filter(m => m !== MODEL)];
     let streamed = false;
+    let lastError: unknown = null;
+    const totalPasses = 2;
 
-    for (const model of modelsToTry) {
-      try {
-        if (model !== modelsToTry[0]) {
-          send({ status: `Switching to fallback model (${model})…` });
+    passLoop:
+    for (let pass = 1; pass <= totalPasses; pass++) {
+      for (const model of modelsToTry) {
+        try {
+          if (!(pass === 1 && model === modelsToTry[0])) {
+            send({ status: `Switching to fallback model (${model})…` });
+          }
+
+          const stream = await openrouter.chat.completions.create({
+            model,
+            max_tokens: 4096,
+            stream: true,
+            messages,
+          });
+
+          for await (const chunk of stream) {
+            const text = chunk.choices[0]?.delta?.content;
+            if (text) send({ text });
+            if (chunk.choices[0]?.finish_reason) break;
+          }
+
+          streamed = true;
+          break passLoop;
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          console.error(`[llm] pass=${pass} model=${model} failed: name=${(e as any)?.name} status=${(e as any)?.status} message=${msg}`);
+          lastError = e;
+
+          // Any per-model failure (deprecated slug, rate limit, capacity, upstream
+          // timeout, etc.) falls through to the next candidate — a single stale
+          // or busy model shouldn't kill the whole report when others exist.
+          const isRateLimit = /concurrency|rate.?limit|429|capacity|timeout|401/i.test(msg);
+          if (isRateLimit) await new Promise(r => setTimeout(r, 2000));
         }
+      }
 
-        const stream = await openrouter.chat.completions.create({
-          model,
-          max_tokens: 4096,
-          stream: true,
-          messages,
-        });
-
-        for await (const chunk of stream) {
-          const text = chunk.choices[0]?.delta?.content;
-          if (text) send({ text });
-          if (chunk.choices[0]?.finish_reason) break;
-        }
-
-        streamed = true;
-        break;
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e);
-        console.error(`[llm] model=${model} failed: name=${(e as any)?.name} status=${(e as any)?.status} message=${msg}`);
-        const isLastModel = model === modelsToTry[modelsToTry.length - 1];
-
-        if (!isLastModel) {
-          // Any per-model failure (deprecated slug, rate limit, capacity, etc.)
-          // falls through to the next candidate — a single stale/busy model
-          // shouldn't kill the whole report when working fallbacks exist.
-          const isRateLimit = /concurrency|rate.?limit|429|capacity/i.test(msg);
-          send({ status: `Model unavailable, trying next…` });
-          if (isRateLimit) await new Promise(r => setTimeout(r, 1500));
-          continue;
-        }
-
-        throw e;
+      if (pass < totalPasses) {
+        send({ status: `All models busy, retrying in a moment…` });
+        await new Promise(r => setTimeout(r, 3000));
       }
     }
 
-    if (!streamed) throw new Error('All models are currently busy. Please try again in a moment.');
+    if (!streamed) {
+      const finalMsg = lastError instanceof Error ? lastError.message : 'All models are currently busy.';
+      throw new Error(`${finalMsg} — please try again in a moment.`);
+    }
 
     send({ done: true });
     res.end();
