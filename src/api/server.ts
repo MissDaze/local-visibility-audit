@@ -15,6 +15,7 @@ import {
   SubjectWebsiteAudit,
   CompetitorWebsiteCheck,
 } from '../engine/web-audit';
+import { demoGate } from '../middleware/demoGate';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -73,7 +74,7 @@ async function outscraperSearch(query: string, limit = 20): Promise<OutscraperRe
 // ---------------------------------------------------------------------------
 // POST /api/audit/stream
 // ---------------------------------------------------------------------------
-app.post('/api/audit/stream', async (req: Request, res: Response) => {
+app.post('/api/audit/stream', demoGate, async (req: Request, res: Response) => {
   console.log('[audit] request received', new Date().toISOString());
   const { businessName, city, industry } = req.body as {
     businessName: string;

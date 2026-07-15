@@ -695,14 +695,21 @@
     };
 
     try {
+      let demoCode = localStorage.getItem('demo_code') || '';
+      if (!demoCode) {
+        demoCode = window.prompt('Enter the demo access code to run an audit:') || '';
+        localStorage.setItem('demo_code', demoCode.trim());
+      }
+
       const res = await fetch('/api/audit/stream', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Demo-Code': localStorage.getItem('demo_code') || '' },
         body: JSON.stringify({ businessName, city, industry: industry || undefined }),
       });
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: 'Server error' }));
+        if (res.status === 401 && err.gated) localStorage.removeItem('demo_code');
         showError(err.error || 'Failed to start audit.');
         return;
       }
