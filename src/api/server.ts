@@ -71,6 +71,7 @@ async function outscraperSearch(query: string, limit = 20): Promise<OutscraperRe
 // POST /api/audit/stream
 // ---------------------------------------------------------------------------
 app.post('/api/audit/stream', async (req: Request, res: Response) => {
+  console.log('[audit] request received', new Date().toISOString());
   const { businessName, city, industry } = req.body as {
     businessName: string;
     city: string;
@@ -300,7 +301,7 @@ app.post('/api/audit/stream', async (req: Request, res: Response) => {
         break;
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
-        console.error(`[llm] model=${model} failed:`, JSON.stringify(e, Object.getOwnPropertyNames(e as object)));
+        console.error(`[llm] model=${model} failed: name=${(e as any)?.name} status=${(e as any)?.status} message=${msg}`);
         const isLastModel = model === modelsToTry[modelsToTry.length - 1];
 
         if (!isLastModel) {
