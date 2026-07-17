@@ -530,6 +530,9 @@
       🔍 Competitor Analysis Debug
       <span class="debug-arrow">▼</span>
     </button>
+    <div style="padding:0 16px">
+      <button class="btn-sm" type="button" onclick="copyDebugJson()">📋 Copy Debug JSON</button>
+    </div>
     <div class="debug-body" id="debug-body">
       <div class="debug-summary" id="debug-summary"></div>
       <div class="debug-confidence" id="debug-confidence"></div>
@@ -548,6 +551,7 @@
               <th>Website</th>
               <th>Rating</th>
               <th>Reviews</th>
+              <th>Score Breakdown</th>
               <th>Reason</th>
             </tr>
           </thead>
@@ -599,6 +603,7 @@
   }
 
   function renderDebugPanel(data) {
+    lastDebugData = data;
     const b = data.benchmarks;
     const panel = document.getElementById('debug-panel');
     panel.classList.add('visible');
@@ -650,6 +655,15 @@
         ? `<span class="tag-website-yes">✓ Yes</span>`
         : `<span class="tag-website-no">—</span>`;
 
+      const bd = c.scoreBreakdown;
+      const breakdownHtml = bd
+        ? `Cat ${bd.categoryRaw}→${bd.categoryWeighted}/50 · ` +
+          `Type ${bd.typeGroupRaw}→${bd.typeGroupWeighted}/25 · ` +
+          `Kw ${bd.keywordRaw}→${bd.keywordWeighted}/15 · ` +
+          `Dist ${bd.distanceRaw}→${bd.distanceWeighted}/10<br>` +
+          `<span style="color:var(--muted)">weakest: ${bd.weakestFactor}</span>`
+        : '—';
+
       return `<tr class="${rowClass}">
         <td>${i + 1}</td>
         <td><strong>${c.name || '—'}</strong></td>
@@ -661,9 +675,19 @@
         <td>${websiteLabel}</td>
         <td>${c.rating ?? '—'}</td>
         <td>${c.reviews ?? '—'}</td>
+        <td style="font-size:11px;color:var(--muted)">${breakdownHtml}</td>
         <td style="font-size:11px;color:var(--muted)">${c.exclusionReason || ''}</td>
       </tr>`;
     }).join('');
+  }
+
+  let lastDebugData = null;
+
+  function copyDebugJson() {
+    if (!lastDebugData) { alert('No debug data yet — run an audit first.'); return; }
+    navigator.clipboard.writeText(JSON.stringify(lastDebugData, null, 2))
+      .then(() => alert('Debug JSON copied to clipboard.'))
+      .catch(() => alert('Could not copy — clipboard access may be blocked.'));
   }
 
   async function runAudit() {

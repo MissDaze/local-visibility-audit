@@ -1,5 +1,17 @@
 import { OutscraperRecord } from '../types/outscraper';
 
+export interface ScoreBreakdown {
+  categoryRaw: number;       // 0-100, Jaccard over type+subtypes tokens
+  categoryWeighted: number;  // categoryRaw * 0.50
+  typeGroupRaw: number;      // 0 / 35 / 50 / 100
+  typeGroupWeighted: number; // typeGroupRaw * 0.25
+  keywordRaw: number;        // 0-100, Jaccard over name+category tokens
+  keywordWeighted: number;   // keywordRaw * 0.15
+  distanceRaw: number;       // fixed 75 (Outscraper pre-filters by area)
+  distanceWeighted: number;  // distanceRaw * 0.10
+  weakestFactor: string;     // factor with the lowest weighted/max-weight ratio
+}
+
 export interface ScoredCompetitor {
   record: OutscraperRecord;
   relevanceScore: number;
@@ -8,6 +20,7 @@ export interface ScoredCompetitor {
   hasValidWebsite: boolean;
   categoryMatch: string;
   typeGroup: string | null;
+  scoreBreakdown: ScoreBreakdown;
 }
 
 // ---------------------------------------------------------------------------
@@ -185,7 +198,13 @@ function classifyGroup(tokens: Set<string>): string | null {
 function scoreRelevance(
   subject: OutscraperRecord,
   competitor: OutscraperRecord,
-): { score: number; categoryMatch: string; typeGroup: string | null; exactCategoryMatch: boolean } {
+): {
+  score: number;
+  categoryMatch: string;
+  typeGroup: string | null;
+  exactCategoryMatch: boolean;
+  breakdown: ScoreBreakdown;
+} {
   // Primary category (Outscraper's `type` field) is the most authoritative
   // relevance signal Google gives us. Compare it directly, before it gets
   // diluted into the blended Jaccard score below alongside noisier `subtypes`
@@ -256,11 +275,40 @@ function scoreRelevance(
     finalScore = Math.max(finalScore, 85);
   }
 
+  // --- Breakdown (for debug/diagnostic output) ---
+  const categoryWeighted = Math.round(catScore * 0.50 * 10) / 10;
+  const typeGroupWeighted = Math.round(typeScore * 0.25 * 10) / 10;
+  const keywordWeighted = Math.round(keywordScore * 0.15 * 10) / 10;
+  const distanceWeighted = Math.round(distanceScore * 0.10 * 10) / 10;
+
+  const factorRatios: { name: string; ratio: number }[] = [
+    { name: 'category similarity', ratio: categoryWeighted / 50 },
+    { name: 'type group match', ratio: typeGroupWeighted / 25 },
+    { name: 'keyword similarity', ratio: keywordWeighted / 15 },
+    { name: 'distance', ratio: distanceWeighted / 10 },
+  ];
+  const weakestFactor = exactCategoryMatch
+    ? 'none (exact primary category match)'
+    : factorRatios.reduce((a, b) => (b.ratio < a.ratio ? b : a)).name;
+
+  const breakdown: ScoreBreakdown = {
+    categoryRaw: Math.round(catScore),
+    categoryWeighted,
+    typeGroupRaw: typeScore,
+    typeGroupWeighted,
+    keywordRaw: Math.round(keywordScore),
+    keywordWeighted,
+    distanceRaw: distanceScore,
+    distanceWeighted,
+    weakestFactor,
+  };
+
   return {
     score: Math.min(100, Math.max(0, finalScore)),
     categoryMatch,
     typeGroup: competitorGroup,
     exactCategoryMatch,
+    breakdown,
   };
 }
 
@@ -316,7 +364,7 @@ function buildScoredCompetitors(
   threshold: number,
 ): ScoredCompetitor[] {
   return candidates.map(c => {
-    const { score, categoryMatch, typeGroup, exactCategoryMatch } = scoreRelevance(subject, c);
+    const { score, categoryMatch, typeGroup, exactCategoryMatch, breakdown } = scoreRelevance(subject, c);
     const hasValidWebsite = isValidWebsite(c);
 
     let exclusionReason: string | null = null;
@@ -325,7 +373,9 @@ function buildScoredCompetitors(
     // grounds alone — it can still be excluded for hard reasons (closed,
     // missing name) below.
     if (!exactCategoryMatch && score < threshold) {
-      exclusionReason = `Relevance score ${score} below threshold ${threshold}`;
+      exclusionReason =
+        `Relevance score ${score} below threshold ${threshold} ` +
+        `(weakest factor: ${breakdown.weakestFactor})`;
     } else if (c.business_status === 'CLOSED_PERMANENTLY') {
       exclusionReason = 'Permanently closed';
     } else if (!c.name?.trim()) {
@@ -340,6 +390,7 @@ function buildScoredCompetitors(
       hasValidWebsite,
       categoryMatch,
       typeGroup,
+      scoreBreakdown: breakdown,
     };
   });
 }

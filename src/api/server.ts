@@ -6,7 +6,7 @@ import OpenAI from 'openai';
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 import { OutscraperRecord } from '../types/outscraper';
 import { SYSTEM_PROMPT, buildUserMessage } from '../llm/prompt-builder';
-import { scoreAndFilterCompetitors, ScoredCompetitor, resolveUrl } from '../engine/relevance';
+import { scoreAndFilterCompetitors, ScoredCompetitor, ScoreBreakdown, resolveUrl } from '../engine/relevance';
 import { computeBenchmarks, BenchmarkData } from '../engine/benchmark';
 import {
   searchForWebsite,
@@ -167,6 +167,13 @@ app.post('/api/audit/stream', demoGate, async (req: Request, res: Response) => {
     if (subjectRecord && filteredCandidates.length > 0) {
       scoredCompetitors = scoreAndFilterCompetitors(subjectRecord, filteredCandidates, 45);
     } else {
+      const unscoredBreakdown: ScoreBreakdown = {
+        categoryRaw: 0, categoryWeighted: 0,
+        typeGroupRaw: 0, typeGroupWeighted: 0,
+        keywordRaw: 0, keywordWeighted: 0,
+        distanceRaw: 0, distanceWeighted: 0,
+        weakestFactor: 'n/a (no subject to compare against)',
+      };
       scoredCompetitors = filteredCandidates.map(r => ({
         record: r,
         relevanceScore: 50,
@@ -175,6 +182,7 @@ app.post('/api/audit/stream', demoGate, async (req: Request, res: Response) => {
         hasValidWebsite: !!resolveUrl(r),
         categoryMatch: 'Unscored (no subject)',
         typeGroup: null,
+        scoreBreakdown: unscoredBreakdown,
       }));
     }
 
@@ -204,6 +212,21 @@ app.post('/api/audit/stream', demoGate, async (req: Request, res: Response) => {
     // ── Step 6: Benchmark computation + contradiction detection ──────────────
     const benchmarkData: BenchmarkData = computeBenchmarks(subjectRecord, scoredCompetitors);
 
+    // Server-side log of excluded candidates + why (also visible in Railway
+    // logs, in case the SSE debug panel isn't handy) — temporary diagnostic
+    // for tuning the relevance filter, not part of the audit output itself.
+    const excludedForLog = scoredCompetitors.filter(c => !c.included);
+    if (excludedForLog.length > 0) {
+      console.log(`[relevance] ${excludedForLog.length}/${scoredCompetitors.length} excluded:`);
+      for (const c of excludedForLog) {
+        console.log(
+          `  - "${c.record.name}" (${c.record.type || 'no category'}) ` +
+          `score=${c.relevanceScore} reason="${c.exclusionReason}" ` +
+          `breakdown=${JSON.stringify(c.scoreBreakdown)}`,
+        );
+      }
+    }
+
     // ── Step 7: Debug panel SSE event ────────────────────────────────────────
     send({
       debug: {
@@ -232,6 +255,7 @@ app.post('/api/audit/stream', demoGate, async (req: Request, res: Response) => {
             relevanceScore: c.relevanceScore,
             categoryMatch: c.categoryMatch,
             typeGroup: c.typeGroup,
+            scoreBreakdown: c.scoreBreakdown,
             included: c.included,
             exclusionReason: c.exclusionReason,
             hasWebsite: c.hasValidWebsite,
