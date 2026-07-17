@@ -185,7 +185,16 @@ function classifyGroup(tokens: Set<string>): string | null {
 function scoreRelevance(
   subject: OutscraperRecord,
   competitor: OutscraperRecord,
-): { score: number; categoryMatch: string; typeGroup: string | null } {
+): { score: number; categoryMatch: string; typeGroup: string | null; exactCategoryMatch: boolean } {
+  // Primary category (Outscraper's `type` field) is the most authoritative
+  // relevance signal Google gives us. Compare it directly, before it gets
+  // diluted into the blended Jaccard score below alongside noisier `subtypes`
+  // and business-name tokens.
+  const subjectPrimaryCategory = normalise(subject.type || '');
+  const competitorPrimaryCategory = normalise(competitor.type || '');
+  const exactCategoryMatch =
+    subjectPrimaryCategory.length > 0 && subjectPrimaryCategory === competitorPrimaryCategory;
+
   const subjectCatText = getAllCategoryText(subject);
   const competitorCatText = getAllCategoryText(competitor);
 
@@ -232,17 +241,26 @@ function scoreRelevance(
   // --- 4. Distance (10%) — Outscraper already filters by area, use fixed 75 ---
   const distanceScore = 75;
 
-  const finalScore = Math.round(
+  let finalScore = Math.round(
     catScore * 0.50 +
     typeScore * 0.25 +
     keywordScore * 0.15 +
     distanceScore * 0.10,
   );
 
+  // An exact primary-category match is strong relevance evidence in its own
+  // right — don't let noisy subtypes/name tokens (which only affect catScore
+  // and keywordScore) drag an otherwise identical-category competitor down.
+  if (exactCategoryMatch) {
+    categoryMatch = 'Exact primary category match';
+    finalScore = Math.max(finalScore, 85);
+  }
+
   return {
     score: Math.min(100, Math.max(0, finalScore)),
     categoryMatch,
     typeGroup: competitorGroup,
+    exactCategoryMatch,
   };
 }
 
@@ -285,18 +303,28 @@ export function resolveUrl(r: OutscraperRecord): string | null {
 // Public: score and filter the full competitor candidate list
 // ---------------------------------------------------------------------------
 
-export function scoreAndFilterCompetitors(
+const MIN_DESIRED_COMPETITORS = 5;
+
+// Relaxation steps used when the first pass doesn't clear MIN_DESIRED_COMPETITORS.
+// 0 as a final step means "include everyone not disqualified for a hard reason
+// (closed / no name)" — i.e. the pool has been fully exhausted.
+const THRESHOLD_RELAXATION_STEPS = [30, 15, 0];
+
+function buildScoredCompetitors(
   subject: OutscraperRecord,
   candidates: OutscraperRecord[],
-  threshold = 45,
+  threshold: number,
 ): ScoredCompetitor[] {
   return candidates.map(c => {
-    const { score, categoryMatch, typeGroup } = scoreRelevance(subject, c);
+    const { score, categoryMatch, typeGroup, exactCategoryMatch } = scoreRelevance(subject, c);
     const hasValidWebsite = isValidWebsite(c);
 
     let exclusionReason: string | null = null;
 
-    if (score < threshold) {
+    // An exact primary-category match is never excluded on relevance-score
+    // grounds alone — it can still be excluded for hard reasons (closed,
+    // missing name) below.
+    if (!exactCategoryMatch && score < threshold) {
       exclusionReason = `Relevance score ${score} below threshold ${threshold}`;
     } else if (c.business_status === 'CLOSED_PERMANENTLY') {
       exclusionReason = 'Permanently closed';
@@ -314,4 +342,24 @@ export function scoreAndFilterCompetitors(
       typeGroup,
     };
   });
+}
+
+export function scoreAndFilterCompetitors(
+  subject: OutscraperRecord,
+  candidates: OutscraperRecord[],
+  threshold = 45,
+): ScoredCompetitor[] {
+  let result = buildScoredCompetitors(subject, candidates, threshold);
+  let includedCount = result.filter(c => c.included).length;
+
+  // Fewer than MIN_DESIRED_COMPETITORS passed — progressively relax the
+  // threshold rather than leaving a thin/unusable benchmark set, until we
+  // hit the minimum or run out of relaxation steps (full pool exhausted).
+  for (const relaxedThreshold of THRESHOLD_RELAXATION_STEPS) {
+    if (includedCount >= MIN_DESIRED_COMPETITORS) break;
+    result = buildScoredCompetitors(subject, candidates, relaxedThreshold);
+    includedCount = result.filter(c => c.included).length;
+  }
+
+  return result;
 }
