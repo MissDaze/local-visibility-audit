@@ -72,6 +72,55 @@ async function outscraperSearch(query: string, limit = 20): Promise<OutscraperRe
 }
 
 // ---------------------------------------------------------------------------
+// Competitor candidate fetch, with a broadened-search fallback.
+//
+// Narrow, cuisine-specific category searches (e.g. "Spanish restaurant in
+// Mordialloc") can return too few results in smaller suburbs — sometimes
+// just the subject itself, which then gets filtered out as "not a
+// competitor," leaving zero candidates for the relevance filter to work
+// with. Broadening to the category's generic noun (its last word, e.g.
+// "restaurant") gives Outscraper a wider net without abandoning the
+// category search entirely.
+// ---------------------------------------------------------------------------
+
+const MIN_CANDIDATES_BEFORE_FALLBACK = 5;
+
+function broadenCategoryHint(hint: string): string | null {
+  const words = hint.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length <= 1) return null;
+  return words[words.length - 1];
+}
+
+async function fetchCompetitorCandidates(
+  categoryHint: string,
+  city: string,
+): Promise<{ candidates: OutscraperRecord[]; broadenedTo: string | null }> {
+  const primary = await outscraperSearch(`${categoryHint} in ${city}`, 20).catch(() => [] as OutscraperRecord[]);
+  if (primary.length >= MIN_CANDIDATES_BEFORE_FALLBACK) {
+    return { candidates: primary, broadenedTo: null };
+  }
+
+  const broadTerm = broadenCategoryHint(categoryHint);
+  if (!broadTerm || broadTerm === categoryHint.trim().toLowerCase()) {
+    return { candidates: primary, broadenedTo: null };
+  }
+
+  const fallback = await outscraperSearch(`${broadTerm} in ${city}`, 20).catch(() => [] as OutscraperRecord[]);
+
+  const seen = new Set(primary.map(r => (r.name || '').toLowerCase().trim()).filter(Boolean));
+  const merged = [...primary];
+  for (const r of fallback) {
+    const key = (r.name || '').toLowerCase().trim();
+    if (key && !seen.has(key)) {
+      seen.add(key);
+      merged.push(r);
+    }
+  }
+
+  return { candidates: merged.slice(0, 20), broadenedTo: broadTerm };
+}
+
+// ---------------------------------------------------------------------------
 // POST /api/audit/stream
 // ---------------------------------------------------------------------------
 app.post('/api/audit/stream', demoGate, async (req: Request, res: Response) => {
@@ -127,9 +176,10 @@ app.post('/api/audit/stream', demoGate, async (req: Request, res: Response) => {
 
     send({ status: `Fetching competitors and auditing websites…` });
 
-    const [rawCandidates, subjectWebsiteAudit] = await Promise.all([
-      // Competitor candidates from Outscraper
-      outscraperSearch(`${categoryHint} in ${city}`, 20).catch(() => [] as OutscraperRecord[]),
+    const [{ candidates: rawCandidates, broadenedTo }, subjectWebsiteAudit] = await Promise.all([
+      // Competitor candidates from Outscraper (falls back to a broader
+      // search term if the category-specific search comes back too thin)
+      fetchCompetitorCandidates(categoryHint, city),
 
       // Subject website: find URL then audit
       (async (): Promise<SubjectWebsiteAudit | null> => {
@@ -154,6 +204,10 @@ app.post('/api/audit/stream', demoGate, async (req: Request, res: Response) => {
         return audit;
       })(),
     ]);
+
+    if (broadenedTo) {
+      send({ status: `Few results for "${categoryHint}" in ${city} — broadened search to "${broadenedTo}"…` });
+    }
 
     // Remove subject from competitor candidates
     const filteredCandidates = subjectRecord?.name
@@ -230,6 +284,11 @@ app.post('/api/audit/stream', demoGate, async (req: Request, res: Response) => {
     // ── Step 7: Debug panel SSE event ────────────────────────────────────────
     send({
       debug: {
+        searchInfo: {
+          categoryHint,
+          broadenedTo,
+          rawCandidateCount: rawCandidates.length,
+        },
         subject: subjectRecord ? {
           name: subjectRecord.name,
           type: subjectRecord.type,
