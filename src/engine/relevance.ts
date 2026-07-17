@@ -203,6 +203,7 @@ function scoreRelevance(
   categoryMatch: string;
   typeGroup: string | null;
   exactCategoryMatch: boolean;
+  sameTypeGroup: boolean;
   breakdown: ScoreBreakdown;
 } {
   // Primary category (Outscraper's `type` field) is the most authoritative
@@ -238,10 +239,12 @@ function scoreRelevance(
   const subjectGroup = classifyGroup(new Set([...subjectCatTokens, ...subjectNameTokens]));
   const competitorGroup = classifyGroup(new Set([...competitorCatTokens, ...competitorNameTokens]));
 
+  const sameTypeGroup = !!subjectGroup && !!competitorGroup && subjectGroup === competitorGroup;
+
   let typeScore: number;
   if (!subjectGroup || !competitorGroup) {
     typeScore = 50; // can't classify → neutral
-  } else if (subjectGroup === competitorGroup) {
+  } else if (sameTypeGroup) {
     typeScore = 100;
     if (categoryMatch === 'No category overlap') categoryMatch = 'Same industry group';
   } else if (ADJACENT_GROUPS[subjectGroup]?.includes(competitorGroup)) {
@@ -270,9 +273,21 @@ function scoreRelevance(
   // An exact primary-category match is strong relevance evidence in its own
   // right — don't let noisy subtypes/name tokens (which only affect catScore
   // and keywordScore) drag an otherwise identical-category competitor down.
+  //
+  // Same reasoning extends to same-type-group matches: classifyGroup() already
+  // encodes the domain knowledge that "Greek/Thai/Vietnamese/Lebanese/Italian
+  // restaurant" etc. are all the same industry as a generic "Restaurant" — but
+  // when the subject has a broad/unusual subtypes list (e.g. a bar-restaurant
+  // hybrid), Jaccard's denominator swamps any narrowly-typed competitor's
+  // overlap regardless of relevance. A same-group classification shouldn't be
+  // overridden by that artifact. Adjacent-group (e.g. cafe vs restaurant) and
+  // incompatible-group candidates still go through the normal blended score.
   if (exactCategoryMatch) {
     categoryMatch = 'Exact primary category match';
     finalScore = Math.max(finalScore, 85);
+  } else if (sameTypeGroup) {
+    categoryMatch = 'Same industry group (strong match)';
+    finalScore = Math.max(finalScore, 70);
   }
 
   // --- Breakdown (for debug/diagnostic output) ---
@@ -289,7 +304,9 @@ function scoreRelevance(
   ];
   const weakestFactor = exactCategoryMatch
     ? 'none (exact primary category match)'
-    : factorRatios.reduce((a, b) => (b.ratio < a.ratio ? b : a)).name;
+    : sameTypeGroup
+      ? 'none (same industry group)'
+      : factorRatios.reduce((a, b) => (b.ratio < a.ratio ? b : a)).name;
 
   const breakdown: ScoreBreakdown = {
     categoryRaw: Math.round(catScore),
@@ -308,6 +325,7 @@ function scoreRelevance(
     categoryMatch,
     typeGroup: competitorGroup,
     exactCategoryMatch,
+    sameTypeGroup,
     breakdown,
   };
 }
@@ -364,15 +382,15 @@ function buildScoredCompetitors(
   threshold: number,
 ): ScoredCompetitor[] {
   return candidates.map(c => {
-    const { score, categoryMatch, typeGroup, exactCategoryMatch, breakdown } = scoreRelevance(subject, c);
+    const { score, categoryMatch, typeGroup, exactCategoryMatch, sameTypeGroup, breakdown } = scoreRelevance(subject, c);
     const hasValidWebsite = isValidWebsite(c);
 
     let exclusionReason: string | null = null;
 
-    // An exact primary-category match is never excluded on relevance-score
-    // grounds alone — it can still be excluded for hard reasons (closed,
-    // missing name) below.
-    if (!exactCategoryMatch && score < threshold) {
+    // An exact primary-category match or a same-industry-group classification
+    // is never excluded on relevance-score grounds alone — it can still be
+    // excluded for hard reasons (closed, missing name) below.
+    if (!exactCategoryMatch && !sameTypeGroup && score < threshold) {
       exclusionReason =
         `Relevance score ${score} below threshold ${threshold} ` +
         `(weakest factor: ${breakdown.weakestFactor})`;
