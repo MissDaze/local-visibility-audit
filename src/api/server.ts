@@ -60,9 +60,11 @@ async function outscraperSearch(query: string, limit = 20, maxWaitMs = 120000): 
     `https://api.app.outscraper.com/maps/search-v3` +
     `?query=${encodeURIComponent(query)}&limit=${limit}&async=true&language=en`;
 
+  console.log(`[outscraper] fetch → ${submitUrl}`);
   const submitRes = await fetch(submitUrl, {
     headers: { 'X-API-KEY': apiKey, Accept: 'application/json' },
   });
+  console.log(`[outscraper] submit response status: ${submitRes.status}`);
 
   if (!submitRes.ok) {
     const text = await submitRes.text();
@@ -74,6 +76,7 @@ async function outscraperSearch(query: string, limit = 20, maxWaitMs = 120000): 
     results_location?: string;
     message?: string;
   };
+  console.log(`[outscraper] submit body:`, JSON.stringify(submitBody).slice(0, 300));
 
   if (!submitBody.results_location) {
     throw new Error(submitBody.message || 'Outscraper did not return a results_location.');
@@ -154,7 +157,9 @@ app.post('/api/audit/stream', demoGate, async (req: Request, res: Response) => {
 
     let subjectRecord: OutscraperRecord | null = null;
     try {
+      console.log(`[outscraper] submitting subject search: "${businessName} ${city}"`);
       const results = await outscraperSearch(`${businessName} ${city}`, 1);
+      console.log(`[outscraper] subject search returned ${results.length} result(s)`);
       subjectRecord = results[0] ?? null;
 
       if (subjectRecord) {
@@ -163,6 +168,7 @@ app.post('/api/audit/stream', demoGate, async (req: Request, res: Response) => {
         send({ status: `No exact match found for "${businessName}". Continuing with competitor data only.` });
       }
     } catch (e: unknown) {
+      console.error(`[outscraper] subject search failed for "${businessName} ${city}":`, e instanceof Error ? e.message : e);
       send({ status: `Could not fetch business data: ${e instanceof Error ? e.message : 'unknown error'}` });
     }
 
@@ -171,9 +177,15 @@ app.post('/api/audit/stream', demoGate, async (req: Request, res: Response) => {
 
     send({ status: `Fetching competitors and auditing websites…` });
 
+    console.log(`[outscraper] submitting competitor search: "${categoryHint} in ${city}"`);
     const [rawCandidates, subjectWebsiteAudit] = await Promise.all([
       // Competitor candidates from Outscraper
-      outscraperSearch(`${categoryHint} in ${city}`, 20).catch(() => [] as OutscraperRecord[]),
+      outscraperSearch(`${categoryHint} in ${city}`, 20)
+        .then(r => { console.log(`[outscraper] competitor search returned ${r.length} result(s)`); return r; })
+        .catch((e: unknown) => {
+          console.error(`[outscraper] competitor search failed for "${categoryHint} in ${city}":`, e instanceof Error ? e.message : e);
+          return [] as OutscraperRecord[];
+        }),
 
       // Subject website: find URL then audit
       (async (): Promise<SubjectWebsiteAudit | null> => {
