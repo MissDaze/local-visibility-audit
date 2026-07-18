@@ -46,103 +46,29 @@ const FALLBACK_MODELS = [
 // ---------------------------------------------------------------------------
 // Outscraper helper
 // ---------------------------------------------------------------------------
-async function outscraperSearch(query: string, limit = 20, timeoutMs = 55000): Promise<OutscraperRecord[]> {
+async function outscraperSearch(query: string, limit = 20): Promise<OutscraperRecord[]> {
   if (!process.env.OUTSCRAPER_API_KEY) throw new Error('OUTSCRAPER_API_KEY is not set.');
 
   const url =
     `https://api.app.outscraper.com/maps/search-v3` +
     `?query=${encodeURIComponent(query)}&limit=${limit}&async=false&language=en`;
 
-  // Outscraper's async=false mode blocks server-side until the scrape
-  // finishes, which can occasionally take a long time. Bound it so a slow
-  // response fails fast (and gets caught by callers) instead of hanging the
-  // whole request indefinitely.
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
-    const res = await fetch(url, {
-      headers: { 'X-API-KEY': process.env.OUTSCRAPER_API_KEY, Accept: 'application/json' },
-      signal: controller.signal,
-    });
-
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Outscraper ${res.status}: ${text.slice(0, 200)}`);
-    }
-
-    const body = await res.json() as { status: string; data?: OutscraperRecord[][]; message?: string };
-
-    if (body.status !== 'Success' || !body.data) {
-      throw new Error(body.message || 'Outscraper returned an unexpected response.');
-    }
-
-    return body.data[0] ?? [];
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Competitor candidate fetch, with a broadened-search fallback.
-//
-// Narrow, cuisine-specific category searches (e.g. "Spanish restaurant in
-// Mordialloc") can return too few results in smaller suburbs — sometimes
-// just the subject itself, which then gets filtered out as "not a
-// competitor," leaving zero candidates for the relevance filter to work
-// with. Broadening to the category's generic noun (its last word, e.g.
-// "restaurant") gives Outscraper a wider net without abandoning the
-// category search entirely.
-// ---------------------------------------------------------------------------
-
-const MIN_CANDIDATES_BEFORE_FALLBACK = 5;
-
-function broadenCategoryHint(hint: string): string | null {
-  const words = hint.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  if (words.length <= 1) return null;
-  return words[words.length - 1];
-}
-
-async function fetchCompetitorCandidates(
-  categoryHint: string,
-  city: string,
-  send: (payload: object) => void,
-): Promise<{ candidates: OutscraperRecord[]; broadenedTo: string | null }> {
-  const primary = await outscraperSearch(`${categoryHint} in ${city}`, 20).catch((e: unknown) => {
-    console.error(`[outscraper] primary search failed for "${categoryHint} in ${city}":`, e instanceof Error ? e.message : e);
-    return [] as OutscraperRecord[];
-  });
-  if (primary.length >= MIN_CANDIDATES_BEFORE_FALLBACK) {
-    return { candidates: primary, broadenedTo: null };
-  }
-
-  const broadTerm = broadenCategoryHint(categoryHint);
-  if (!broadTerm || broadTerm === categoryHint.trim().toLowerCase()) {
-    return { candidates: primary, broadenedTo: null };
-  }
-
-  // Heartbeat before the second (potentially slow) Outscraper call — without
-  // this, a fallback search leaves the SSE stream completely silent for the
-  // duration of two sequential synchronous scrapes, risking an idle-connection
-  // timeout that kills the request before it can finish.
-  send({ status: `Few results for "${categoryHint}" in ${city} — broadening search to "${broadTerm}"…` });
-
-  const fallback = await outscraperSearch(`${broadTerm} in ${city}`, 20).catch((e: unknown) => {
-    console.error(`[outscraper] fallback search failed for "${broadTerm} in ${city}":`, e instanceof Error ? e.message : e);
-    return [] as OutscraperRecord[];
+  const res = await fetch(url, {
+    headers: { 'X-API-KEY': process.env.OUTSCRAPER_API_KEY, Accept: 'application/json' },
   });
 
-  const seen = new Set(primary.map(r => (r.name || '').toLowerCase().trim()).filter(Boolean));
-  const merged = [...primary];
-  for (const r of fallback) {
-    const key = (r.name || '').toLowerCase().trim();
-    if (key && !seen.has(key)) {
-      seen.add(key);
-      merged.push(r);
-    }
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Outscraper ${res.status}: ${text.slice(0, 200)}`);
   }
 
-  return { candidates: merged.slice(0, 20), broadenedTo: broadTerm };
+  const body = await res.json() as { status: string; data?: OutscraperRecord[][]; message?: string };
+
+  if (body.status !== 'Success' || !body.data) {
+    throw new Error(body.message || 'Outscraper returned an unexpected response.');
+  }
+
+  return body.data[0] ?? [];
 }
 
 // ---------------------------------------------------------------------------
@@ -178,12 +104,6 @@ app.post('/api/audit/stream', demoGate, async (req: Request, res: Response) => {
 
   const send = (payload: object) => res.write(`data: ${JSON.stringify(payload)}\n\n`);
 
-  // SSE keepalive: Outscraper's synchronous scrape can legitimately take up
-  // to a minute, during which no application data is sent. A periodic
-  // comment ping keeps the connection from looking idle to any intermediary
-  // (proxy, browser) that might otherwise time it out mid-request.
-  const keepAlive = setInterval(() => res.write(': keepalive\n\n'), 15000);
-
   try {
     // ── Step 1: Subject business (Outscraper) ────────────────────────────────
     send({ status: `Searching Google Maps for "${businessName}" in ${city}…` });
@@ -199,7 +119,6 @@ app.post('/api/audit/stream', demoGate, async (req: Request, res: Response) => {
         send({ status: `No exact match found for "${businessName}". Continuing with competitor data only.` });
       }
     } catch (e: unknown) {
-      console.error(`[outscraper] subject search failed for "${businessName} ${city}":`, e instanceof Error ? e.message : e);
       send({ status: `Could not fetch business data: ${e instanceof Error ? e.message : 'unknown error'}` });
     }
 
@@ -208,10 +127,9 @@ app.post('/api/audit/stream', demoGate, async (req: Request, res: Response) => {
 
     send({ status: `Fetching competitors and auditing websites…` });
 
-    const [{ candidates: rawCandidates, broadenedTo }, subjectWebsiteAudit] = await Promise.all([
-      // Competitor candidates from Outscraper (falls back to a broader
-      // search term if the category-specific search comes back too thin)
-      fetchCompetitorCandidates(categoryHint, city, send),
+    const [rawCandidates, subjectWebsiteAudit] = await Promise.all([
+      // Competitor candidates from Outscraper
+      outscraperSearch(`${categoryHint} in ${city}`, 20).catch(() => [] as OutscraperRecord[]),
 
       // Subject website: find URL then audit
       (async (): Promise<SubjectWebsiteAudit | null> => {
@@ -312,11 +230,6 @@ app.post('/api/audit/stream', demoGate, async (req: Request, res: Response) => {
     // ── Step 7: Debug panel SSE event ────────────────────────────────────────
     send({
       debug: {
-        searchInfo: {
-          categoryHint,
-          broadenedTo,
-          rawCandidateCount: rawCandidates.length,
-        },
         subject: subjectRecord ? {
           name: subjectRecord.name,
           type: subjectRecord.type,
@@ -449,8 +362,6 @@ app.post('/api/audit/stream', demoGate, async (req: Request, res: Response) => {
     console.error('Audit stream error:', msg);
     send({ error: msg });
     res.end();
-  } finally {
-    clearInterval(keepAlive);
   }
 });
 
