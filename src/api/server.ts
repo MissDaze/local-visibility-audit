@@ -372,18 +372,45 @@ app.post('/api/audit/stream', demoGate, async (req: Request, res: Response) => {
             send({ status: `Switching to fallback model (${model})…` });
           }
 
-          const stream = await openrouter.chat.completions.create({
-            model,
-            max_tokens: 4096,
-            stream: true,
-            messages,
-          });
+          // The prompt requires a 13-section consultant report -- 4096 tokens
+          // (~3000 words) was cutting it off mid-report and silently treating
+          // that as a normal finish. 12000 gives real headroom; the model's
+          // finish_reason is still checked below in case it's ever not enough.
+          const controller = new AbortController();
+          let inactivityTimer: ReturnType<typeof setTimeout>;
+          const resetInactivityTimer = () => {
+            clearTimeout(inactivityTimer);
+            // No new chunk in 30s almost certainly means the upstream stream
+            // has stalled -- abort so this falls through to the next model/pass
+            // instead of hanging the request (and the SSE keepalive) forever.
+            inactivityTimer = setTimeout(() => controller.abort(), 30000);
+          };
 
+          const stream = await openrouter.chat.completions.create(
+            {
+              model,
+              max_tokens: 12000,
+              stream: true,
+              messages,
+            },
+            { signal: controller.signal },
+          );
+
+          resetInactivityTimer();
           for await (const chunk of stream) {
+            resetInactivityTimer();
             const text = chunk.choices[0]?.delta?.content;
             if (text) send({ text });
-            if (chunk.choices[0]?.finish_reason) break;
+            const finishReason = chunk.choices[0]?.finish_reason;
+            if (finishReason) {
+              if (finishReason === 'length') {
+                console.warn(`[llm] pass=${pass} model=${model} response truncated at max_tokens`);
+                send({ status: 'Note: report reached the model\'s output limit and may be truncated.' });
+              }
+              break;
+            }
           }
+          clearTimeout(inactivityTimer!);
 
           streamed = true;
           break passLoop;
