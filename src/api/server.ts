@@ -46,7 +46,7 @@ const FALLBACK_MODELS = [
 // ---------------------------------------------------------------------------
 // Outscraper helper
 // ---------------------------------------------------------------------------
-async function outscraperSearch(query: string, limit = 20, timeoutMs = 25000): Promise<OutscraperRecord[]> {
+async function outscraperSearch(query: string, limit = 20, timeoutMs = 55000): Promise<OutscraperRecord[]> {
   if (!process.env.OUTSCRAPER_API_KEY) throw new Error('OUTSCRAPER_API_KEY is not set.');
 
   const url =
@@ -171,6 +171,12 @@ app.post('/api/audit/stream', demoGate, async (req: Request, res: Response) => {
   res.flushHeaders();
 
   const send = (payload: object) => res.write(`data: ${JSON.stringify(payload)}\n\n`);
+
+  // SSE keepalive: Outscraper's synchronous scrape can legitimately take up
+  // to a minute, during which no application data is sent. A periodic
+  // comment ping keeps the connection from looking idle to any intermediary
+  // (proxy, browser) that might otherwise time it out mid-request.
+  const keepAlive = setInterval(() => res.write(': keepalive\n\n'), 15000);
 
   try {
     // ── Step 1: Subject business (Outscraper) ────────────────────────────────
@@ -436,6 +442,8 @@ app.post('/api/audit/stream', demoGate, async (req: Request, res: Response) => {
     console.error('Audit stream error:', msg);
     send({ error: msg });
     res.end();
+  } finally {
+    clearInterval(keepAlive);
   }
 });
 
