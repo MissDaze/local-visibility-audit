@@ -456,6 +456,18 @@
     }
     .how-step h3 { font-size: 13px; font-weight: 700; margin-bottom: 6px; }
     .how-step p { font-size: 12px; color: var(--muted); }
+
+    /* ── Print: report content only, light background for paper ── */
+    @media print {
+      header, .search-card, .status-bar, .debug-panel, .report-actions, .how-it-works {
+        display: none !important;
+      }
+      body { background: #fff; color: #111; }
+      .page { max-width: 100%; padding: 0; margin: 0; }
+      .report-card { border: none; padding: 0; }
+      #report-content h2 { color: #111; }
+      #report-content .impl-diy, #report-content .impl-dfy { border-color: #ccc; }
+    }
   </style>
 </head>
 <body>
@@ -564,8 +576,9 @@
   <!-- Report -->
   <div class="report-card" id="report-card">
     <div class="report-actions" id="report-actions">
+      <button class="btn-sm" onclick="downloadReport()">⬇️ Download Report</button>
       <button class="btn-sm" onclick="copyReport()">📋 Copy Markdown</button>
-      <button class="btn-sm" onclick="window.print()">🖨️ Print</button>
+      <button class="btn-sm" onclick="window.print()">🖨️ Print / Save as PDF</button>
       <button class="btn-sm" onclick="resetAudit()">🔄 New Audit</button>
     </div>
     <div id="report-content"></div>
@@ -892,6 +905,63 @@
   function copyReport() {
     navigator.clipboard.writeText(rawMarkdown)
       .then(() => alert('Report copied to clipboard as Markdown.'));
+  }
+
+  // Bundles the rendered report into a standalone HTML file (styling
+  // inlined, no dependency on this page/server) so it can be emailed or
+  // handed to a client directly, and opens/prints cleanly on its own.
+  function downloadReport() {
+    const businessName = document.getElementById('business-name').value.trim() || 'Business';
+    const reportHtml = document.getElementById('report-content').innerHTML;
+    const dateStr = new Date().toISOString().slice(0, 10);
+
+    const doc = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>${businessName} — Business Growth Assessment</title>
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  body{background:#0f1117;color:#e2e8f0;font-family:'Inter',system-ui,-apple-system,sans-serif;line-height:1.8;padding:48px 24px}
+  .wrap{max-width:720px;margin:0 auto;background:#1a1d27;border:1px solid #2e3347;border-radius:10px;padding:36px}
+  #report-content h1{font-size:22px;font-weight:800;letter-spacing:-0.4px;margin-bottom:4px}
+  #report-content h2{font-size:17px;font-weight:700;color:#6366f1;margin-top:36px;margin-bottom:14px;border-bottom:1px solid #2e3347;padding-bottom:8px}
+  #report-content h3{font-size:15px;font-weight:700;margin-top:22px;margin-bottom:8px}
+  #report-content p{margin-bottom:12px}
+  #report-content ul,#report-content ol{padding-left:20px;margin-bottom:12px}
+  #report-content li{margin-bottom:6px}
+  #report-content table{width:100%;border-collapse:collapse;margin-bottom:20px;font-size:14px}
+  #report-content th{background:#222534;padding:9px 14px;text-align:left;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#8892aa;border-bottom:1px solid #2e3347}
+  #report-content td{padding:10px 14px;border-bottom:1px solid #2e3347}
+  #report-content strong{font-weight:700;color:#fff}
+  #report-content em{color:#8892aa}
+  #report-content hr{border:none;border-top:1px solid #2e3347;margin:28px 0}
+  #report-content .impl-card{background:#222534;border:1px solid #2e3347;border-radius:8px;padding:20px 24px;margin:12px 0 20px}
+  #report-content .impl-diy{border-left:3px solid #6366f1}
+  #report-content .impl-dfy{border-left:3px solid #22c55e}
+  #report-content .check-list{list-style:none;padding-left:0}
+  #report-content .check-item{color:#22c55e}
+  #report-content .next-step-content{background:#6366f112;border:1px solid #6366f135;border-radius:8px;padding:16px 20px;margin-bottom:10px}
+  #report-content .success-content{background:#22c55e0d;border:1px solid #22c55e30;border-radius:8px;padding:16px 20px;margin-bottom:10px}
+  @media print { body{background:#fff;color:#111;padding:0} .wrap{border:none;padding:0} #report-content h2{color:#111} }
+</style>
+</head>
+<body>
+<div class="wrap">
+<div id="report-content">${reportHtml}</div>
+</div>
+</body>
+</html>`;
+
+    const blob = new Blob([doc], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${businessName.replace(/[^a-z0-9]+/gi, '-')} - Visibility Report - ${dateStr}.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   }
 
   function resetAudit() {
