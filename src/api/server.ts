@@ -46,29 +46,41 @@ const FALLBACK_MODELS = [
 // ---------------------------------------------------------------------------
 // Outscraper helper
 // ---------------------------------------------------------------------------
-async function outscraperSearch(query: string, limit = 20): Promise<OutscraperRecord[]> {
+async function outscraperSearch(query: string, limit = 20, timeoutMs = 25000): Promise<OutscraperRecord[]> {
   if (!process.env.OUTSCRAPER_API_KEY) throw new Error('OUTSCRAPER_API_KEY is not set.');
 
   const url =
     `https://api.app.outscraper.com/maps/search-v3` +
     `?query=${encodeURIComponent(query)}&limit=${limit}&async=false&language=en`;
 
-  const res = await fetch(url, {
-    headers: { 'X-API-KEY': process.env.OUTSCRAPER_API_KEY, Accept: 'application/json' },
-  });
+  // Outscraper's async=false mode blocks server-side until the scrape
+  // finishes, which can occasionally take a long time. Bound it so a slow
+  // response fails fast (and gets caught by callers) instead of hanging the
+  // whole request indefinitely.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Outscraper ${res.status}: ${text.slice(0, 200)}`);
+  try {
+    const res = await fetch(url, {
+      headers: { 'X-API-KEY': process.env.OUTSCRAPER_API_KEY, Accept: 'application/json' },
+      signal: controller.signal,
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Outscraper ${res.status}: ${text.slice(0, 200)}`);
+    }
+
+    const body = await res.json() as { status: string; data?: OutscraperRecord[][]; message?: string };
+
+    if (body.status !== 'Success' || !body.data) {
+      throw new Error(body.message || 'Outscraper returned an unexpected response.');
+    }
+
+    return body.data[0] ?? [];
+  } finally {
+    clearTimeout(timer);
   }
-
-  const body = await res.json() as { status: string; data?: OutscraperRecord[][]; message?: string };
-
-  if (body.status !== 'Success' || !body.data) {
-    throw new Error(body.message || 'Outscraper returned an unexpected response.');
-  }
-
-  return body.data[0] ?? [];
 }
 
 // ---------------------------------------------------------------------------
@@ -94,6 +106,7 @@ function broadenCategoryHint(hint: string): string | null {
 async function fetchCompetitorCandidates(
   categoryHint: string,
   city: string,
+  send: (payload: object) => void,
 ): Promise<{ candidates: OutscraperRecord[]; broadenedTo: string | null }> {
   const primary = await outscraperSearch(`${categoryHint} in ${city}`, 20).catch(() => [] as OutscraperRecord[]);
   if (primary.length >= MIN_CANDIDATES_BEFORE_FALLBACK) {
@@ -104,6 +117,12 @@ async function fetchCompetitorCandidates(
   if (!broadTerm || broadTerm === categoryHint.trim().toLowerCase()) {
     return { candidates: primary, broadenedTo: null };
   }
+
+  // Heartbeat before the second (potentially slow) Outscraper call — without
+  // this, a fallback search leaves the SSE stream completely silent for the
+  // duration of two sequential synchronous scrapes, risking an idle-connection
+  // timeout that kills the request before it can finish.
+  send({ status: `Few results for "${categoryHint}" in ${city} — broadening search to "${broadTerm}"…` });
 
   const fallback = await outscraperSearch(`${broadTerm} in ${city}`, 20).catch(() => [] as OutscraperRecord[]);
 
@@ -179,7 +198,7 @@ app.post('/api/audit/stream', demoGate, async (req: Request, res: Response) => {
     const [{ candidates: rawCandidates, broadenedTo }, subjectWebsiteAudit] = await Promise.all([
       // Competitor candidates from Outscraper (falls back to a broader
       // search term if the category-specific search comes back too thin)
-      fetchCompetitorCandidates(categoryHint, city),
+      fetchCompetitorCandidates(categoryHint, city, send),
 
       // Subject website: find URL then audit
       (async (): Promise<SubjectWebsiteAudit | null> => {
@@ -204,10 +223,6 @@ app.post('/api/audit/stream', demoGate, async (req: Request, res: Response) => {
         return audit;
       })(),
     ]);
-
-    if (broadenedTo) {
-      send({ status: `Few results for "${categoryHint}" in ${city} — broadened search to "${broadenedTo}"…` });
-    }
 
     // Remove subject from competitor candidates
     const filteredCandidates = subjectRecord?.name
