@@ -46,29 +46,67 @@ const FALLBACK_MODELS = [
 // ---------------------------------------------------------------------------
 // Outscraper helper
 // ---------------------------------------------------------------------------
-async function outscraperSearch(query: string, limit = 20): Promise<OutscraperRecord[]> {
-  if (!process.env.OUTSCRAPER_API_KEY) throw new Error('OUTSCRAPER_API_KEY is not set.');
+// Outscraper's async=false (synchronous) mode holds a concurrency slot open
+// for the full scrape duration. It has proven unreliable under load — it can
+// hang with no response at all, or return "Too many requests" — even while
+// Outscraper's own dashboard keeps working fine. The dashboard (and this
+// async=true mode) go through Outscraper's normal job-queue pipeline instead:
+// submit the job, then poll the returned results_location until it's done.
+async function outscraperSearch(query: string, limit = 20, maxWaitMs = 120000): Promise<OutscraperRecord[]> {
+  const apiKey = process.env.OUTSCRAPER_API_KEY;
+  if (!apiKey) throw new Error('OUTSCRAPER_API_KEY is not set.');
 
-  const url =
+  const submitUrl =
     `https://api.app.outscraper.com/maps/search-v3` +
-    `?query=${encodeURIComponent(query)}&limit=${limit}&async=false&language=en`;
+    `?query=${encodeURIComponent(query)}&limit=${limit}&async=true&language=en`;
 
-  const res = await fetch(url, {
-    headers: { 'X-API-KEY': process.env.OUTSCRAPER_API_KEY, Accept: 'application/json' },
+  const submitRes = await fetch(submitUrl, {
+    headers: { 'X-API-KEY': apiKey, Accept: 'application/json' },
   });
 
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Outscraper ${res.status}: ${text.slice(0, 200)}`);
+  if (!submitRes.ok) {
+    const text = await submitRes.text();
+    throw new Error(`Outscraper ${submitRes.status}: ${text.slice(0, 200)}`);
   }
 
-  const body = await res.json() as { status: string; data?: OutscraperRecord[][]; message?: string };
+  const submitBody = await submitRes.json() as {
+    status: string;
+    results_location?: string;
+    message?: string;
+  };
 
-  if (body.status !== 'Success' || !body.data) {
-    throw new Error(body.message || 'Outscraper returned an unexpected response.');
+  if (!submitBody.results_location) {
+    throw new Error(submitBody.message || 'Outscraper did not return a results_location.');
   }
 
-  return body.data[0] ?? [];
+  const pollIntervalMs = 4000;
+  const deadline = Date.now() + maxWaitMs;
+
+  while (Date.now() < deadline) {
+    await new Promise(r => setTimeout(r, pollIntervalMs));
+
+    const pollRes = await fetch(submitBody.results_location, {
+      headers: { 'X-API-KEY': apiKey, Accept: 'application/json' },
+    });
+
+    if (!pollRes.ok) continue; // transient — keep polling until the deadline
+
+    const pollBody = await pollRes.json() as {
+      status: string;
+      data?: OutscraperRecord[][];
+      message?: string;
+    };
+
+    if (pollBody.status === 'Success') {
+      return pollBody.data?.[0] ?? [];
+    }
+    if (pollBody.status !== 'Pending') {
+      throw new Error(pollBody.message || `Outscraper job ended with status "${pollBody.status}".`);
+    }
+    // else still Pending — keep polling
+  }
+
+  throw new Error(`Outscraper job timed out after ${maxWaitMs}ms waiting for results.`);
 }
 
 // ---------------------------------------------------------------------------
@@ -103,6 +141,12 @@ app.post('/api/audit/stream', demoGate, async (req: Request, res: Response) => {
   res.flushHeaders();
 
   const send = (payload: object) => res.write(`data: ${JSON.stringify(payload)}\n\n`);
+
+  // SSE keepalive: the Outscraper async submit+poll can take up to ~2
+  // minutes per call now, during which no application data is sent. A
+  // periodic comment ping keeps the connection from looking idle to any
+  // intermediary (proxy, browser) that might otherwise time it out.
+  const keepAlive = setInterval(() => res.write(': keepalive\n\n'), 15000);
 
   try {
     // ── Step 1: Subject business (Outscraper) ────────────────────────────────
@@ -362,6 +406,8 @@ app.post('/api/audit/stream', demoGate, async (req: Request, res: Response) => {
     console.error('Audit stream error:', msg);
     send({ error: msg });
     res.end();
+  } finally {
+    clearInterval(keepAlive);
   }
 });
 
