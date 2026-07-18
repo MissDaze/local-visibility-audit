@@ -108,7 +108,10 @@ async function fetchCompetitorCandidates(
   city: string,
   send: (payload: object) => void,
 ): Promise<{ candidates: OutscraperRecord[]; broadenedTo: string | null }> {
-  const primary = await outscraperSearch(`${categoryHint} in ${city}`, 20).catch(() => [] as OutscraperRecord[]);
+  const primary = await outscraperSearch(`${categoryHint} in ${city}`, 20).catch((e: unknown) => {
+    console.error(`[outscraper] primary search failed for "${categoryHint} in ${city}":`, e instanceof Error ? e.message : e);
+    return [] as OutscraperRecord[];
+  });
   if (primary.length >= MIN_CANDIDATES_BEFORE_FALLBACK) {
     return { candidates: primary, broadenedTo: null };
   }
@@ -124,7 +127,10 @@ async function fetchCompetitorCandidates(
   // timeout that kills the request before it can finish.
   send({ status: `Few results for "${categoryHint}" in ${city} — broadening search to "${broadTerm}"…` });
 
-  const fallback = await outscraperSearch(`${broadTerm} in ${city}`, 20).catch(() => [] as OutscraperRecord[]);
+  const fallback = await outscraperSearch(`${broadTerm} in ${city}`, 20).catch((e: unknown) => {
+    console.error(`[outscraper] fallback search failed for "${broadTerm} in ${city}":`, e instanceof Error ? e.message : e);
+    return [] as OutscraperRecord[];
+  });
 
   const seen = new Set(primary.map(r => (r.name || '').toLowerCase().trim()).filter(Boolean));
   const merged = [...primary];
@@ -193,6 +199,7 @@ app.post('/api/audit/stream', demoGate, async (req: Request, res: Response) => {
         send({ status: `No exact match found for "${businessName}". Continuing with competitor data only.` });
       }
     } catch (e: unknown) {
+      console.error(`[outscraper] subject search failed for "${businessName} ${city}":`, e instanceof Error ? e.message : e);
       send({ status: `Could not fetch business data: ${e instanceof Error ? e.message : 'unknown error'}` });
     }
 
