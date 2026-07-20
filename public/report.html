@@ -56,10 +56,11 @@
   let rawMarkdown = '';
   let currentBusinessName = '';
   let currentReportId = null;
+  let currentGeneratedAt = null;
   let brandingCache = null;
 
   function handleDownload() {
-    downloadReport(currentBusinessName || 'Business', brandingCache, currentWrittenBy);
+    downloadReport(currentBusinessName || 'Business', brandingCache, currentWrittenBy, currentGeneratedAt);
   }
   function copyReport() {
     navigator.clipboard.writeText(rawMarkdown).then(() => alert('Report copied to clipboard as Markdown.'));
@@ -100,13 +101,14 @@
     document.getElementById('loading-notice').remove();
     currentBusinessName = report.business_name;
     currentWrittenBy = report.written_by;
+    currentGeneratedAt = report.created_at;
     rawMarkdown = report.markdown || '';
 
     document.getElementById('report-content').innerHTML = marked.parse(rawMarkdown);
     document.getElementById('report-card').classList.add('visible');
     document.getElementById('report-actions').classList.add('visible');
     enhanceReport();
-    renderLetterhead(brandingCache, currentWrittenBy);
+    renderLetterhead(brandingCache, currentWrittenBy, currentGeneratedAt);
 
     if (report.debug_json) {
       renderDebugPanel(report.debug_json);

@@ -48,7 +48,7 @@ export async function processBatch(tenantId: string, batchId: string, writtenBy:
         try {
           await sendReportEmail(
             tenantId,
-            { business_name: item.business_name, status: 'complete', markdown: result.markdown, written_by: writtenBy },
+            { business_name: item.business_name, status: 'complete', markdown: result.markdown, written_by: writtenBy, created_at: new Date().toISOString() },
             recipientEmail,
           );
           await updateBatchItem(item.id, { status_detail: `Emailed to ${recipientEmail}` });

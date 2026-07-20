@@ -20,7 +20,8 @@
 }
 .report-letterhead img { max-height: 64px; max-width: 220px; object-fit: contain; }
 .report-letterhead .company-name { font-size: 16px; font-weight: 800; }
-.report-written-by { font-size: 12px; color: var(--muted); margin-bottom: 24px; }
+.report-written-by { font-size: 12px; color: var(--muted); margin-bottom: 2px; }
+.report-generated-at { font-size: 12px; color: var(--muted); margin-bottom: 24px; }
 
 .report-actions {
   display: none;

@@ -160,6 +160,7 @@
   let rawMarkdown = '';
   let currentBusinessName = '';
   let currentReportId = null;
+  let currentGeneratedAt = null;
   let brandingCache = null;
   let lastDebugData = null;
 
@@ -206,6 +207,7 @@
     document.getElementById('debug-constraints').style.display = 'none';
     rawMarkdown = '';
     currentReportId = null;
+    currentGeneratedAt = null;
 
     const setStatus = (msg) => { document.getElementById('status-text').textContent = msg; };
 
@@ -284,8 +286,9 @@
   function onComplete() {
     document.getElementById('report-content').innerHTML = marked.parse(rawMarkdown);
     enhanceReport();
+    currentGeneratedAt = new Date().toISOString();
     const writtenBy = document.getElementById('written-by').value.trim() || (brandingCache && brandingCache.writtenBy) || null;
-    renderLetterhead(brandingCache, writtenBy);
+    renderLetterhead(brandingCache, writtenBy, currentGeneratedAt);
     document.getElementById('report-actions').classList.add('visible');
     document.getElementById('status-bar').classList.remove('visible');
     document.getElementById('generate-btn').disabled = false;
@@ -293,7 +296,7 @@
 
   function handleDownload() {
     const writtenBy = document.getElementById('written-by').value.trim() || (brandingCache && brandingCache.writtenBy) || null;
-    downloadReport(currentBusinessName || 'Business', brandingCache, writtenBy);
+    downloadReport(currentBusinessName || 'Business', brandingCache, writtenBy, currentGeneratedAt);
   }
 
   function showError(msg) {

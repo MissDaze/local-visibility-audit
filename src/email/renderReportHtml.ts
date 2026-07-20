@@ -9,9 +9,11 @@ export function renderBrandedReportHtml(
   markdown: string,
   branding: Branding | null,
   writtenBy: string | null,
+  generatedAt: string,
 ): string {
   const reportHtml = marked.parse(markdown, { async: false }) as string;
   const title = branding?.companyName || 'Business Growth Assessment';
+  const generatedAtLabel = new Date(generatedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
   const letterheadHtml = (branding && (branding.logoDataUri || branding.companyName))
     ? `<div style="display:flex;align-items:center;gap:16px;padding-bottom:20px;margin-bottom:20px;border-bottom:1px solid #2e3347;">
@@ -19,7 +21,8 @@ export function renderBrandedReportHtml(
         ${branding.companyName ? `<div style="font-size:16px;font-weight:800;">${branding.companyName}</div>` : ''}
       </div>`
     : '';
-  const writtenByHtml = writtenBy ? `<div style="font-size:12px;color:#8892aa;margin-bottom:24px;">Prepared by ${writtenBy}</div>` : '';
+  const writtenByHtml = writtenBy ? `<div style="font-size:12px;color:#8892aa;">Prepared by ${writtenBy}</div>` : '';
+  const generatedAtHtml = `<div style="font-size:12px;color:#8892aa;margin-bottom:24px;">Report generated: ${generatedAtLabel}</div>`;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -49,6 +52,7 @@ export function renderBrandedReportHtml(
 <div class="wrap">
 ${letterheadHtml}
 ${writtenByHtml}
+${generatedAtHtml}
 <div id="report-content">${reportHtml}</div>
 </div>
 </body>

@@ -37,6 +37,9 @@
   </div>
 
   <div class="section-title">Recent Reports</div>
+  <div class="field" style="max-width:320px; margin-bottom:12px;">
+    <input type="text" id="report-search" placeholder="Search by business name…" />
+  </div>
   <div class="card" style="padding:0; overflow-x:auto;">
     <table class="simple-table" id="reports-table">
       <thead>
@@ -71,15 +74,16 @@
     return `<span class="status-pill status-${status}">${status}</span>`;
   }
 
-  async function loadReports() {
-    const res = await fetch('/api/reports');
-    const data = await res.json();
+  let allReports = [];
+
+  function renderReportsTable(reports, searchActive) {
     const tbody = document.getElementById('reports-tbody');
-    if (!data.reports?.length) {
-      tbody.innerHTML = `<tr><td colspan="5" class="muted" style="padding:20px;">No reports yet — run your first audit.</td></tr>`;
+    if (!reports.length) {
+      tbody.innerHTML = `<tr><td colspan="5" class="muted" style="padding:20px;">${searchActive ? 'No reports match that search.' : 'No reports yet — run your first audit.'}</td></tr>`;
       return;
     }
-    tbody.innerHTML = data.reports.slice(0, 15).map(r => `
+    const rows = searchActive ? reports : reports.slice(0, 15);
+    tbody.innerHTML = rows.map(r => `
       <tr>
         <td><strong>${r.business_name}</strong></td>
         <td>${r.city}</td>
@@ -89,6 +93,20 @@
       </tr>
     `).join('');
   }
+
+  async function loadReports() {
+    const res = await fetch('/api/reports');
+    const data = await res.json();
+    allReports = data.reports || [];
+    renderReportsTable(allReports, false);
+  }
+
+  document.getElementById('report-search').addEventListener('input', (e) => {
+    const term = e.target.value.trim().toLowerCase();
+    if (!term) { renderReportsTable(allReports, false); return; }
+    const filtered = allReports.filter(r => r.business_name.toLowerCase().includes(term));
+    renderReportsTable(filtered, true);
+  });
 
   async function loadBatches() {
     const res = await fetch('/api/batch');

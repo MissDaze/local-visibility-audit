@@ -7,6 +7,7 @@ export interface EmailableReport {
   status: string;
   markdown: string | null;
   written_by: string | null;
+  created_at: string;
 }
 
 export async function sendReportEmail(
@@ -24,7 +25,7 @@ export async function sendReportEmail(
   const branding = await getBranding(tenantId);
   const writtenBy = report.written_by ?? branding?.writtenBy ?? null;
 
-  const attachmentHtml = renderBrandedReportHtml(report.business_name, markdown, branding, writtenBy);
+  const attachmentHtml = renderBrandedReportHtml(report.business_name, markdown, branding, writtenBy, report.created_at);
   const bodyHtml = renderReportEmailBody(report.business_name, branding, writtenBy, message);
 
   await sendEmail({

@@ -141,12 +141,20 @@ function enhanceReport() {
   });
 }
 
-// Renders the "letterhead" block (agency logo/name + written-by byline) at
-// the top of the report card, if the tenant has set any branding.
-function renderLetterhead(branding, writtenBy) {
+// Human-readable "data as of" stamp — directly answers the most common
+// buyer objection (see target-customer doc): "how do I know this is
+// accurate?" A visible run date positions the report as a live snapshot,
+// not a stale template.
+function formatGeneratedAt(dateInput) {
+  const d = dateInput ? new Date(dateInput) : new Date();
+  return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+// Renders the "letterhead" block (agency logo/name, written-by byline, and
+// generation timestamp) at the top of the report card.
+function renderLetterhead(branding, writtenBy, generatedAt) {
   const container = document.getElementById('report-card');
-  const existing = container.querySelector('.report-letterhead, .report-written-by');
-  if (existing) existing.remove();
+  container.querySelectorAll('.report-letterhead, .report-written-by, .report-generated-at').forEach(el => el.remove());
 
   const content = document.getElementById('report-content');
   const parts = [];
@@ -160,17 +168,17 @@ function renderLetterhead(branding, writtenBy) {
   if (writtenBy) {
     parts.push(`<div class="report-written-by">Prepared by ${writtenBy}</div>`);
   }
-  if (parts.length) {
-    const wrap = document.createElement('div');
-    wrap.innerHTML = parts.join('');
-    while (wrap.firstChild) content.parentNode.insertBefore(wrap.firstChild, content);
-  }
+  parts.push(`<div class="report-generated-at">Report generated: ${formatGeneratedAt(generatedAt)}</div>`);
+
+  const wrap = document.createElement('div');
+  wrap.innerHTML = parts.join('');
+  while (wrap.firstChild) content.parentNode.insertBefore(wrap.firstChild, content);
 }
 
 // Bundles the rendered report (with letterhead + written-by) into a
 // standalone HTML file so it can be emailed or handed to a client directly —
 // no dependency on this page/server, opens and prints cleanly on its own.
-function downloadReport(businessName, branding, writtenBy) {
+function downloadReport(businessName, branding, writtenBy, generatedAt) {
   const reportHtml = document.getElementById('report-content').innerHTML;
   const dateStr = new Date().toISOString().slice(0, 10);
   const title = (branding && branding.companyName) || 'Business Growth Assessment';
@@ -181,7 +189,8 @@ function downloadReport(businessName, branding, writtenBy) {
         ${branding.companyName ? `<div style="font-size:16px;font-weight:800;">${branding.companyName}</div>` : ''}
       </div>`
     : '';
-  const writtenByHtml = writtenBy ? `<div style="font-size:12px;color:#8892aa;margin-bottom:24px;">Prepared by ${writtenBy}</div>` : '';
+  const writtenByHtml = writtenBy ? `<div style="font-size:12px;color:#8892aa;">Prepared by ${writtenBy}</div>` : '';
+  const generatedAtHtml = `<div style="font-size:12px;color:#8892aa;margin-bottom:24px;">Report generated: ${formatGeneratedAt(generatedAt)}</div>`;
 
   const doc = `<!DOCTYPE html>
 <html lang="en">
@@ -218,6 +227,7 @@ function downloadReport(businessName, branding, writtenBy) {
 <div class="wrap">
 ${letterheadHtml}
 ${writtenByHtml}
+${generatedAtHtml}
 <div id="report-content">${reportHtml}</div>
 </div>
 </body>
