@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Report — Local Visibility Audit</title>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <link rel="stylesheet" href="/shared.css" />
+  <link rel="stylesheet" href="/report.css" />
+</head>
+<body>
+
+<div class="page">
+  <p style="margin-bottom:16px"><a href="/dashboard.html">&larr; Back to dashboard</a></p>
+
+  <div id="loading-notice" class="notice-box">Loading report…</div>
+
+  <div class="debug-panel" id="debug-panel">
+    <button class="debug-toggle" id="debug-toggle" onclick="toggleDebug()">
+      🔍 Competitor Analysis Debug
+      <span class="debug-arrow">▼</span>
+    </button>
+    <div class="debug-body" id="debug-body">
+      <div class="debug-summary" id="debug-summary"></div>
+      <div class="debug-confidence" id="debug-confidence"></div>
+      <div class="debug-constraints" id="debug-constraints" style="display:none"></div>
+      <div style="overflow-x:auto">
+        <table class="debug-table">
+          <thead>
+            <tr>
+              <th>#</th><th>Business</th><th>Primary Category</th><th>Type Group</th><th>Relevance</th>
+              <th>Category Match</th><th>Status</th><th>Website</th><th>Rating</th><th>Reviews</th>
+              <th>Score Breakdown</th><th>Reason</th>
+            </tr>
+          </thead>
+          <tbody id="debug-table-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="report-card" id="report-card">
+    <div class="report-actions" id="report-actions">
+      <button class="btn-sm" onclick="handleDownload()">⬇️ Download Report</button>
+      <button class="btn-sm" onclick="copyReport()">📋 Copy Markdown</button>
+      <button class="btn-sm" onclick="window.print()">🖨️ Print / Save as PDF</button>
+    </div>
+    <div id="report-content"></div>
+  </div>
+</div>
+
+<script src="/nav.js"></script>
+<script src="/report-render.js"></script>
+<script>
+  let rawMarkdown = '';
+  let currentBusinessName = '';
+  let brandingCache = null;
+
+  function handleDownload() {
+    downloadReport(currentBusinessName || 'Business', brandingCache, currentWrittenBy);
+  }
+  function copyReport() {
+    navigator.clipboard.writeText(rawMarkdown).then(() => alert('Report copied to clipboard as Markdown.'));
+  }
+
+  let currentWrittenBy = null;
+
+  async function loadBranding() {
+    try {
+      const res = await fetch('/api/branding');
+      if (res.ok) brandingCache = await res.json();
+    } catch { /* branding is optional */ }
+  }
+
+  async function loadReport() {
+    const id = new URLSearchParams(window.location.search).get('id');
+    if (!id) { document.getElementById('loading-notice').textContent = 'No report ID given.'; return; }
+
+    const res = await fetch(`/api/reports/${id}`);
+    if (!res.ok) {
+      document.getElementById('loading-notice').textContent = 'Report not found.';
+      return;
+    }
+    const { report } = await res.json();
+
+    if (report.status === 'running') {
+      document.getElementById('loading-notice').textContent = 'This report is still generating — refresh in a moment.';
+      return;
+    }
+    if (report.status === 'error') {
+      document.getElementById('loading-notice').remove();
+      document.getElementById('report-card').classList.add('visible');
+      document.getElementById('report-content').innerHTML = `<div class="error-box">⚠️ ${report.error || 'This report failed to generate.'}</div>`;
+      return;
+    }
+
+    document.getElementById('loading-notice').remove();
+    currentBusinessName = report.business_name;
+    currentWrittenBy = report.written_by;
+    rawMarkdown = report.markdown || '';
+
+    document.getElementById('report-content').innerHTML = marked.parse(rawMarkdown);
+    document.getElementById('report-card').classList.add('visible');
+    document.getElementById('report-actions').classList.add('visible');
+    enhanceReport();
+    renderLetterhead(brandingCache, currentWrittenBy);
+
+    if (report.debug_json) {
+      renderDebugPanel(report.debug_json);
+    }
+  }
+
+  (async () => {
+    const me = await requireAuthOrRedirect('dashboard');
+    if (!me) return;
+    await loadBranding();
+    loadReport();
+  })();
+</script>
+
+</body>
+</html>

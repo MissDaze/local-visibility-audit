@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Branding — Local Visibility Audit</title>
+  <link rel="stylesheet" href="/shared.css" />
+  <style>
+    .logo-preview {
+      max-height: 90px; max-width: 260px; object-fit: contain;
+      background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px;
+      display: block; margin-bottom: 14px;
+    }
+    .logo-empty {
+      color: var(--muted); font-size: 13px; padding: 20px;
+      background: var(--surface2); border: 1px dashed var(--border); border-radius: 8px;
+      text-align: center; margin-bottom: 14px;
+    }
+  </style>
+</head>
+<body>
+
+<div class="page">
+  <h1 class="page-title">White-Label Branding</h1>
+  <p class="page-sub">These settings apply to every report you generate — your logo and name appear instead of ours.</p>
+
+  <div id="save-notice"></div>
+
+  <div class="card" style="margin-bottom:24px;">
+    <h3 style="margin-bottom:16px; font-size:15px;">Letterhead / Logo</h3>
+    <div id="logo-preview-container"></div>
+    <input type="file" id="logo-input" accept="image/png,image/jpeg,image/webp" style="display:none" />
+    <div style="display:flex; gap:10px;">
+      <button class="btn secondary small" id="upload-logo-btn">Upload Logo</button>
+      <button class="btn danger small" id="remove-logo-btn">Remove</button>
+    </div>
+    <p class="muted" style="font-size:12px; margin-top:10px;">PNG, JPEG, or WEBP, up to 2MB. Appears at the top of every report and download.</p>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-bottom:16px; font-size:15px;">Report Details</h3>
+    <div class="field">
+      <label>Company / Agency Name</label>
+      <input type="text" id="company-name" placeholder="e.g. Bright Digital Agency" />
+    </div>
+    <div class="field">
+      <label>Default "Written By" Name</label>
+      <input type="text" id="written-by" placeholder="e.g. Jamie Smith" />
+      <p class="muted" style="font-size:12px;">Shown as "Prepared by [name]" on reports. Can be overridden per report or per batch.</p>
+    </div>
+    <button class="btn" id="save-btn" onclick="saveBranding()">Save Changes</button>
+  </div>
+</div>
+
+<script src="/nav.js"></script>
+<script>
+  function renderLogoPreview(logoDataUri) {
+    const container = document.getElementById('logo-preview-container');
+    container.innerHTML = logoDataUri
+      ? `<img class="logo-preview" src="${logoDataUri}" alt="Logo preview" />`
+      : `<div class="logo-empty">No logo uploaded yet</div>`;
+  }
+
+  async function loadBranding() {
+    const res = await fetch('/api/branding');
+    if (!res.ok) return;
+    const data = await res.json();
+    document.getElementById('company-name').value = data.companyName || '';
+    document.getElementById('written-by').value = data.writtenBy || '';
+    renderLogoPreview(data.logoDataUri);
+  }
+
+  async function saveBranding() {
+    const btn = document.getElementById('save-btn');
+    btn.disabled = true;
+    btn.textContent = 'Saving…';
+    const notice = document.getElementById('save-notice');
+    notice.innerHTML = '';
+
+    try {
+      const res = await fetch('/api/branding', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          companyName: document.getElementById('company-name').value,
+          writtenBy: document.getElementById('written-by').value,
+        }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || 'Save failed.');
+      notice.innerHTML = `<div class="notice-box">Branding saved.</div>`;
+    } catch (e) {
+      notice.innerHTML = `<div class="error-box">${e.message}</div>`;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Save Changes';
+    }
+  }
+
+  document.getElementById('upload-logo-btn').addEventListener('click', () => {
+    document.getElementById('logo-input').click();
+  });
+
+  document.getElementById('logo-input').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const notice = document.getElementById('save-notice');
+    notice.innerHTML = '';
+
+    const formData = new FormData();
+    formData.append('logo', file);
+
+    try {
+      const res = await fetch('/api/branding/logo', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Upload failed.');
+      renderLogoPreview(data.logoDataUri);
+      notice.innerHTML = `<div class="notice-box">Logo uploaded.</div>`;
+    } catch (err) {
+      notice.innerHTML = `<div class="error-box">${err.message}</div>`;
+    } finally {
+      e.target.value = '';
+    }
+  });
+
+  document.getElementById('remove-logo-btn').addEventListener('click', async () => {
+    await fetch('/api/branding/logo', { method: 'DELETE' });
+    renderLogoPreview(null);
+  });
+
+  (async () => {
+    const me = await requireAuthOrRedirect('branding');
+    if (!me) return;
+    loadBranding();
+  })();
+</script>
+
+</body>
+</html>

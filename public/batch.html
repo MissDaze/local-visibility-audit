@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Batch Reports — Local Visibility Audit</title>
+  <link rel="stylesheet" href="/shared.css" />
+  <style>
+    .batch-row {
+      display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 10px;
+      margin-bottom: 10px; align-items: end;
+    }
+    @media (max-width: 700px) { .batch-row { grid-template-columns: 1fr; } }
+    .batch-row .field { margin-bottom: 0; }
+    .remove-row-btn {
+      background: none; border: 1px solid var(--border); color: var(--muted);
+      border-radius: 7px; padding: 11px 12px; cursor: pointer; font-family: inherit;
+    }
+    .remove-row-btn:hover { color: var(--red); border-color: var(--red); }
+    .row-actions { display: flex; gap: 10px; margin: 16px 0 24px; }
+  </style>
+</head>
+<body>
+
+<div class="page wide">
+  <h1 class="page-title">Batch Reports</h1>
+  <p class="page-sub">Run visibility reports for up to 5 businesses at once. Each report counts against your monthly report quota.</p>
+
+  <div id="form-card" class="card">
+    <div id="error-container"></div>
+    <div id="batch-rows"></div>
+
+    <div class="row-actions">
+      <button class="btn secondary small" id="add-row-btn" type="button">+ Add Business</button>
+      <span class="muted" style="align-self:center; font-size:13px;" id="row-count-note"></span>
+    </div>
+
+    <div class="field">
+      <label>Prepared By <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--muted)">(optional — applies to all reports in this batch)</span></label>
+      <input type="text" id="batch-written-by" placeholder="e.g. Jamie Smith" />
+    </div>
+
+    <button class="btn full" id="submit-batch-btn" onclick="submitBatch()">Generate Reports</button>
+  </div>
+
+  <div id="progress-card" class="card" style="display:none; margin-top:24px;">
+    <h3 style="margin-bottom:16px;">Batch Progress <span class="muted" id="progress-summary"></span></h3>
+    <table class="simple-table">
+      <thead><tr><th>Business</th><th>City</th><th>Status</th><th>Detail</th><th></th></tr></thead>
+      <tbody id="progress-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<script src="/nav.js"></script>
+<script>
+  const MAX_ROWS = 5;
+  let pollTimer = null;
+
+  function makeRow() {
+    const row = document.createElement('div');
+    row.className = 'batch-row';
+    row.innerHTML = `
+      <div class="field"><label>Business Name</label><input type="text" class="row-business" placeholder="e.g. Sunrise Plumbing Co" /></div>
+      <div class="field"><label>City / Area</label><input type="text" class="row-city" placeholder="e.g. Melbourne, Australia" /></div>
+      <div class="field"><label>Industry (optional)</label><input type="text" class="row-industry" placeholder="e.g. plumber" /></div>
+      <button class="remove-row-btn" type="button" title="Remove">✕</button>
+    `;
+    row.querySelector('.remove-row-btn').addEventListener('click', () => {
+      row.remove();
+      updateRowCount();
+    });
+    return row;
+  }
+
+  function updateRowCount() {
+    const count = document.querySelectorAll('.batch-row').length;
+    document.getElementById('row-count-note').textContent = `${count} / ${MAX_ROWS} businesses`;
+    document.getElementById('add-row-btn').disabled = count >= MAX_ROWS;
+  }
+
+  function addRow() {
+    if (document.querySelectorAll('.batch-row').length >= MAX_ROWS) return;
+    document.getElementById('batch-rows').appendChild(makeRow());
+    updateRowCount();
+  }
+
+  document.getElementById('add-row-btn').addEventListener('click', addRow);
+
+  async function submitBatch() {
+    const errorContainer = document.getElementById('error-container');
+    errorContainer.innerHTML = '';
+
+    const items = Array.from(document.querySelectorAll('.batch-row')).map(row => ({
+      businessName: row.querySelector('.row-business').value.trim(),
+      city: row.querySelector('.row-city').value.trim(),
+      industry: row.querySelector('.row-industry').value.trim() || undefined,
+    })).filter(i => i.businessName || i.city);
+
+    if (!items.length) {
+      errorContainer.innerHTML = `<div class="error-box">Add at least one business.</div>`;
+      return;
+    }
+    for (const i of items) {
+      if (!i.businessName || !i.city) {
+        errorContainer.innerHTML = `<div class="error-box">Every row needs both a business name and a city.</div>`;
+        return;
+      }
+    }
+
+    const submitBtn = document.getElementById('submit-batch-btn');
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Starting batch…';
+
+    try {
+      const res = await fetch('/api/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items, writtenBy: document.getElementById('batch-written-by').value.trim() || undefined }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to start batch.');
+
+      window.history.replaceState(null, '', `/batch.html?id=${data.batchId}`);
+      showProgress(data.batchId);
+    } catch (e) {
+      errorContainer.innerHTML = `<div class="error-box">${e.message}</div>`;
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Generate Reports';
+    }
+  }
+
+  function statusPill(status) {
+    return `<span class="status-pill status-${status}">${status}</span>`;
+  }
+
+  function showProgress(batchId) {
+    document.getElementById('form-card').style.display = 'none';
+    document.getElementById('progress-card').style.display = 'block';
+    pollBatch(batchId);
+    pollTimer = setInterval(() => pollBatch(batchId), 3000);
+  }
+
+  async function pollBatch(batchId) {
+    const res = await fetch(`/api/batch/${batchId}`);
+    if (!res.ok) return;
+    const { batch, items } = await res.json();
+
+    document.getElementById('progress-summary').textContent = `— ${batch.completed} / ${batch.total} complete`;
+    document.getElementById('progress-tbody').innerHTML = items.map(item => `
+      <tr>
+        <td><strong>${item.business_name}</strong></td>
+        <td>${item.city}</td>
+        <td>${statusPill(item.status)}</td>
+        <td class="muted" style="font-size:13px;">${item.status_detail || ''}</td>
+        <td>${item.status === 'complete' && item.report_id ? `<a href="/report.html?id=${item.report_id}">View</a>` : ''}</td>
+      </tr>
+    `).join('');
+
+    if (batch.status !== 'running' && pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+  }
+
+  (async () => {
+    const me = await requireAuthOrRedirect('batch');
+    if (!me) return;
+
+    const existingBatchId = new URLSearchParams(window.location.search).get('id');
+    if (existingBatchId) {
+      showProgress(existingBatchId);
+    } else {
+      addRow();
+      addRow();
+      updateRowCount();
+    }
+  })();
+</script>
+
+</body>
+</html>

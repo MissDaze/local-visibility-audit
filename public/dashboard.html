@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard — Local Visibility Audit</title>
+  <link rel="stylesheet" href="/shared.css" />
+  <style>
+    .quick-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 32px; }
+    @media (max-width: 560px) { .quick-actions { grid-template-columns: 1fr; } }
+    .quick-card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 22px; display: flex; flex-direction: column; gap: 6px;
+    }
+    .quick-card h3 { font-size: 15px; }
+    .quick-card p { font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+    .section-title { font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); margin: 32px 0 12px; }
+  </style>
+</head>
+<body>
+
+<div class="page wide">
+  <h1 class="page-title" id="welcome-title">Dashboard</h1>
+  <p class="page-sub" id="trial-note"></p>
+
+  <div class="quick-actions">
+    <div class="quick-card">
+      <h3>🔍 New Audit</h3>
+      <p>Run a single visibility report for one business.</p>
+      <a href="/index.html" class="btn small" style="width:fit-content">Start audit</a>
+    </div>
+    <div class="quick-card">
+      <h3>📦 Batch Reports</h3>
+      <p>Upload up to 5 businesses and generate all their reports at once.</p>
+      <a href="/batch.html" class="btn small secondary" style="width:fit-content">Run a batch</a>
+    </div>
+  </div>
+
+  <div class="section-title">Recent Reports</div>
+  <div class="card" style="padding:0; overflow-x:auto;">
+    <table class="simple-table" id="reports-table">
+      <thead>
+        <tr><th>Business</th><th>City</th><th>Status</th><th>Created</th><th></th></tr>
+      </thead>
+      <tbody id="reports-tbody">
+        <tr><td colspan="5" class="muted" style="padding:20px;">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="section-title">Recent Batches</div>
+  <div class="card" style="padding:0; overflow-x:auto;">
+    <table class="simple-table" id="batches-table">
+      <thead>
+        <tr><th>Batch</th><th>Progress</th><th>Status</th><th>Created</th><th></th></tr>
+      </thead>
+      <tbody id="batches-tbody">
+        <tr><td colspan="5" class="muted" style="padding:20px;">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script src="/nav.js"></script>
+<script>
+  function fmtDate(iso) {
+    return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  }
+
+  function statusPill(status) {
+    return `<span class="status-pill status-${status}">${status}</span>`;
+  }
+
+  async function loadReports() {
+    const res = await fetch('/api/reports');
+    const data = await res.json();
+    const tbody = document.getElementById('reports-tbody');
+    if (!data.reports?.length) {
+      tbody.innerHTML = `<tr><td colspan="5" class="muted" style="padding:20px;">No reports yet — run your first audit.</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = data.reports.slice(0, 15).map(r => `
+      <tr>
+        <td><strong>${r.business_name}</strong></td>
+        <td>${r.city}</td>
+        <td>${statusPill(r.status)}</td>
+        <td class="muted">${fmtDate(r.created_at)}</td>
+        <td>${r.status === 'complete' ? `<a href="/report.html?id=${r.id}">View</a>` : ''}</td>
+      </tr>
+    `).join('');
+  }
+
+  async function loadBatches() {
+    const res = await fetch('/api/batch');
+    const data = await res.json();
+    const tbody = document.getElementById('batches-tbody');
+    if (!data.batches?.length) {
+      tbody.innerHTML = `<tr><td colspan="5" class="muted" style="padding:20px;">No batches yet.</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = data.batches.slice(0, 10).map(b => `
+      <tr>
+        <td><code>${b.id.slice(0, 8)}</code></td>
+        <td>${b.completed} / ${b.total}</td>
+        <td>${statusPill(b.status)}</td>
+        <td class="muted">${fmtDate(b.created_at)}</td>
+        <td><a href="/batch.html?id=${b.id}">View</a></td>
+      </tr>
+    `).join('');
+  }
+
+  (async () => {
+    const me = await requireAuthOrRedirect('dashboard');
+    if (!me) return;
+    document.getElementById('welcome-title').textContent = me.companyName ? `Welcome, ${me.companyName}` : 'Dashboard';
+    if (me.planTier === 'trial' && me.trialEndsAt) {
+      document.getElementById('trial-note').textContent =
+        `Free trial — ends ${new Date(me.trialEndsAt).toLocaleDateString()}`;
+    }
+    loadReports();
+    loadBatches();
+  })();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Start Free Trial — Local Visibility Audit</title>
+  <link rel="stylesheet" href="/shared.css" />
+</head>
+<body>
+
+<div class="page" style="max-width:420px; padding-top:80px;">
+  <div style="text-align:center; margin-bottom:32px;">
+    <div style="font-size:32px; margin-bottom:10px;">📍</div>
+    <h1 class="page-title">Start your free trial</h1>
+    <p class="page-sub">14 days free, no card required to start.</p>
+  </div>
+
+  <div class="card">
+    <div id="error-container"></div>
+    <form id="signup-form">
+      <div class="field">
+        <label>Agency / Company Name</label>
+        <input type="text" id="companyName" placeholder="e.g. Bright Digital Agency" />
+      </div>
+      <div class="field">
+        <label>Email</label>
+        <input type="email" id="email" placeholder="you@agency.com" required />
+      </div>
+      <div class="field">
+        <label>Password</label>
+        <input type="password" id="password" placeholder="At least 8 characters" required minlength="8" />
+      </div>
+      <button type="submit" class="btn full" id="submit-btn">Create Account</button>
+    </form>
+  </div>
+
+  <p style="text-align:center; margin-top:20px; color:var(--muted); font-size:14px;">
+    Already have an account? <a href="/login.html">Log in</a>
+  </p>
+</div>
+
+<script>
+  (async () => {
+    const res = await fetch('/api/auth/me');
+    if (res.ok) window.location.href = '/dashboard.html';
+  })();
+
+  document.getElementById('signup-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const errorContainer = document.getElementById('error-container');
+    const submitBtn = document.getElementById('submit-btn');
+    errorContainer.innerHTML = '';
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Creating account…';
+
+    try {
+      const res = await fetch('/api/auth/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          companyName: document.getElementById('companyName').value,
+          email: document.getElementById('email').value,
+          password: document.getElementById('password').value,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Signup failed.');
+      window.location.href = '/dashboard.html';
+    } catch (err) {
+      errorContainer.innerHTML = `<div class="error-box">${err.message}</div>`;
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Create Account';
+    }
+  });
+</script>
+
+</body>
+</html>
