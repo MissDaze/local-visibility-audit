@@ -34,7 +34,7 @@ async function squareFetch<T>(path: string, options: { method?: string; body?: u
     body: options.body ? JSON.stringify(options.body) : undefined,
   });
 
-  const json = await res.json();
+  const json = await res.json() as any;
   if (!res.ok || json.errors) {
     const detail = json.errors?.map((e: any) => e.detail).join('; ') || `HTTP ${res.status}`;
     throw new Error(`Square API error: ${detail}`);
