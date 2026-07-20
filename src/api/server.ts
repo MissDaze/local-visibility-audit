@@ -11,6 +11,7 @@ import { reportsRouter } from '../routes/reports.routes';
 import { batchRouter } from '../routes/batch.routes';
 import { brandingRouter } from '../routes/branding.routes';
 import { billingRouter, handleSquareWebhook } from '../routes/billing.routes';
+import { publicRouter } from '../routes/public.routes';
 import { runAudit } from '../engine/runAudit';
 import { createRunningReport, completeReport, failReport } from '../db/reports';
 import { findTenantById } from '../db/tenants';
@@ -30,8 +31,18 @@ app.post('/api/billing/webhook', express.raw({ type: 'application/json' }), hand
 
 app.use(express.json({ limit: '10mb' }));
 app.use(sessionMiddleware);
+
+// The marketing landing page is the public entry point — registered before
+// express.static so it wins over static's default "serve index.html at /"
+// behavior. The actual app (index.html, dashboard.html, etc.) stays reachable
+// at its own paths, which nav.js and every in-app link already use directly.
+app.get('/', (_req, res) => {
+  res.sendFile(path.join(__dirname, '../../public/landing.html'));
+});
+
 app.use(express.static(path.join(__dirname, '../../public')));
 
+app.use('/api/public', publicRouter);
 app.use('/api/auth', authRouter);
 app.use('/api/reports', requireAuth, reportsRouter);
 app.use('/api/batch', requireAuth, batchRouter);
@@ -90,7 +101,7 @@ app.post('/api/audit/stream', requireAuth, requireQuota(1), async (req: Request,
 });
 
 app.get('*', (_req, res) => {
-  res.sendFile(path.join(__dirname, '../../public/index.html'));
+  res.sendFile(path.join(__dirname, '../../public/landing.html'));
 });
 
 async function start() {
