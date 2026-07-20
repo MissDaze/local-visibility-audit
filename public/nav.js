@@ -14,6 +14,7 @@ function renderNav(me, active) {
     { href: '/index.html', label: 'New Audit', key: 'audit' },
     { href: '/batch.html', label: 'Batch', key: 'batch' },
     { href: '/branding.html', label: 'Branding', key: 'branding' },
+    { href: '/billing.html', label: 'Billing', key: 'billing' },
   ];
 
   const nav = document.createElement('header');

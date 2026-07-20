@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { createBatch, getBatchForTenant, listBatchesForTenant, BatchItemInput } from '../db/batches';
 import { findTenantById } from '../db/tenants';
 import { processBatch } from '../engine/batchProcessor';
+import { checkAndReserveQuota } from '../db/usage';
 
 export const batchRouter = Router();
 
@@ -31,6 +32,14 @@ batchRouter.post('/', async (req: Request, res: Response) => {
   for (const item of items) {
     if (!item.businessName?.trim() || !item.city?.trim()) {
       res.status(400).json({ error: 'Every row needs a business name and city.' });
+      return;
+    }
+  }
+
+  if (process.env.BILLING_ENABLED === 'true') {
+    const quota = await checkAndReserveQuota(tenantId, items.length);
+    if (!quota.allowed) {
+      res.status(402).json({ error: quota.reason || 'Quota exceeded.' });
       return;
     }
   }

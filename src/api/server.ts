@@ -5,13 +5,16 @@ import path from 'path';
 import { initSchema } from '../db/schema';
 import { sessionMiddleware } from '../auth/session';
 import { requireAuth } from '../middleware/requireAuth';
+import { requireQuota } from '../middleware/requireQuota';
 import { authRouter } from '../routes/auth.routes';
 import { reportsRouter } from '../routes/reports.routes';
 import { batchRouter } from '../routes/batch.routes';
 import { brandingRouter } from '../routes/branding.routes';
+import { billingRouter, handleSquareWebhook } from '../routes/billing.routes';
 import { runAudit } from '../engine/runAudit';
 import { createRunningReport, completeReport, failReport } from '../db/reports';
 import { findTenantById } from '../db/tenants';
+import { syncPricingPlansToSquare } from '../billing/syncPlans';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -19,6 +22,12 @@ const PORT = process.env.PORT || 3000;
 app.set('trust proxy', 1); // Railway sits behind a proxy — needed for secure cookies to work correctly
 
 app.use(cors());
+
+// Square webhook signature verification needs the exact raw bytes of the
+// request body, so this is registered with express.raw() BEFORE the global
+// JSON body parser below (and doesn't need auth — Square calls it directly).
+app.post('/api/billing/webhook', express.raw({ type: 'application/json' }), handleSquareWebhook);
+
 app.use(express.json({ limit: '10mb' }));
 app.use(sessionMiddleware);
 app.use(express.static(path.join(__dirname, '../../public')));
@@ -27,11 +36,12 @@ app.use('/api/auth', authRouter);
 app.use('/api/reports', requireAuth, reportsRouter);
 app.use('/api/batch', requireAuth, batchRouter);
 app.use('/api/branding', requireAuth, brandingRouter);
+app.use('/api/billing', requireAuth, billingRouter);
 
 // ---------------------------------------------------------------------------
 // POST /api/audit/stream — single interactive audit, streamed to the browser
 // ---------------------------------------------------------------------------
-app.post('/api/audit/stream', requireAuth, async (req: Request, res: Response) => {
+app.post('/api/audit/stream', requireAuth, requireQuota(1), async (req: Request, res: Response) => {
   console.log('[audit] request received', new Date().toISOString());
   const tenantId = req.session.tenantId!;
   const { businessName, city, industry, writtenBy } = req.body as {
@@ -91,12 +101,19 @@ async function start() {
     process.exit(1);
   }
 
+  if (process.env.BILLING_ENABLED === 'true') {
+    await syncPricingPlansToSquare().catch((e) => {
+      console.error('[billing] plan sync on boot failed:', e instanceof Error ? e.message : e);
+    });
+  }
+
   app.listen(PORT, () => {
     console.log(`Local Audit Engine → http://localhost:${PORT}`);
     if (!process.env.OUTSCRAPER_API_KEY) console.warn('⚠  OUTSCRAPER_API_KEY not set');
     if (!process.env.OPENROUTER_API_KEY) console.warn('⚠  OPENROUTER_API_KEY not set');
     if (!process.env.DATABASE_URL) console.warn('⚠  DATABASE_URL not set');
     if (!process.env.SESSION_SECRET) console.warn('⚠  SESSION_SECRET not set — using an insecure dev default');
+    console.log(`Billing: ${process.env.BILLING_ENABLED === 'true' ? 'ENABLED' : 'disabled'}`);
   });
 }
 

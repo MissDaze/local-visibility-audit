@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Billing — Local Visibility Audit</title>
+  <link rel="stylesheet" href="/shared.css" />
+  <style>
+    .cycle-toggle { display: flex; gap: 8px; margin-bottom: 28px; }
+    .cycle-btn {
+      padding: 8px 16px; border-radius: 7px; border: 1px solid var(--border);
+      background: var(--surface2); color: var(--muted); cursor: pointer; font-size: 13px; font-weight: 700;
+      font-family: inherit;
+    }
+    .cycle-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .tiers-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+    .tier-card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 24px; display: flex; flex-direction: column; gap: 10px;
+    }
+    .tier-card.current { border-color: var(--accent); }
+    .tier-name { font-size: 16px; font-weight: 800; }
+    .tier-price { font-size: 26px; font-weight: 800; }
+    .tier-price span { font-size: 13px; font-weight: 500; color: var(--muted); }
+    .tier-reports { font-size: 13px; color: var(--muted); }
+    .current-badge {
+      display: inline-block; font-size: 11px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.5px; color: var(--accent);
+    }
+  </style>
+</head>
+<body>
+
+<div class="page wide">
+  <h1 class="page-title">Billing & Plans</h1>
+  <p class="page-sub" id="status-note">Loading…</p>
+
+  <div id="disabled-notice" style="display:none" class="notice-box">
+    Billing isn't enabled on this instance — this is the internal/demo deployment. Pricing shown below is for reference only.
+  </div>
+
+  <div class="cycle-toggle">
+    <button class="cycle-btn active" id="monthly-btn" onclick="setCycle('monthly')">Monthly</button>
+    <button class="cycle-btn" id="annual-btn" onclick="setCycle('annual')">Annual (20% off)</button>
+  </div>
+
+  <div class="tiers-grid" id="tiers-grid"></div>
+</div>
+
+<script src="/nav.js"></script>
+<script>
+  let cycle = 'monthly';
+  let pricingData = null;
+
+  function fmtPrice(cents) {
+    return '$' + (cents / 100).toFixed(2);
+  }
+
+  function setCycle(c) {
+    cycle = c;
+    document.getElementById('monthly-btn').classList.toggle('active', c === 'monthly');
+    document.getElementById('annual-btn').classList.toggle('active', c === 'annual');
+    renderTiers();
+  }
+
+  function renderTiers() {
+    const grid = document.getElementById('tiers-grid');
+    grid.innerHTML = pricingData.tiers.map(t => {
+      const price = cycle === 'monthly' ? t.monthlyPriceCents : t.annualPriceCents;
+      const isCurrent = pricingData.subscription?.tierId === t.tierId && pricingData.subscription?.status === 'active';
+      return `
+        <div class="tier-card ${isCurrent ? 'current' : ''}">
+          ${isCurrent ? '<span class="current-badge">Current Plan</span>' : ''}
+          <div class="tier-name">${t.name}</div>
+          <div class="tier-price">${fmtPrice(price)}<span> / ${cycle === 'monthly' ? 'mo' : 'yr'}</span></div>
+          <div class="tier-reports">${t.reportsPerMonth} reports / month</div>
+          <div class="tier-reports">Overage: ${fmtPrice(t.bundlePriceCents)} per ${t.bundleSize} reports</div>
+          <button class="btn small ${isCurrent ? 'secondary' : ''}" ${!pricingData.billingEnabled ? 'disabled' : ''}
+            onclick="checkout('${t.tierId}')">
+            ${isCurrent ? 'Current Plan' : (pricingData.billingEnabled ? 'Subscribe' : 'Unavailable')}
+          </button>
+        </div>
+      `;
+    }).join('');
+  }
+
+  async function checkout(tierId) {
+    try {
+      const res = await fetch('/api/billing/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tierId, billingCycle: cycle }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Checkout failed.');
+      window.location.href = data.url;
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+
+  async function loadPricing() {
+    const res = await fetch('/api/billing/pricing');
+    pricingData = await res.json();
+
+    document.getElementById('disabled-notice').style.display = pricingData.billingEnabled ? 'none' : 'block';
+    document.getElementById('status-note').textContent = pricingData.subscription
+      ? `Current plan status: ${pricingData.subscription.status}`
+      : 'Choose a plan below.';
+
+    renderTiers();
+  }
+
+  (async () => {
+    const me = await requireAuthOrRedirect('billing');
+    if (!me) return;
+    loadPricing();
+  })();
+</script>
+
+</body>
+</html>
