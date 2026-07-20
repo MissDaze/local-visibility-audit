@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="/shared.css" />
   <style>
     .batch-row {
-      display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 10px;
+      display: grid; grid-template-columns: 1fr 1fr 1fr 1fr auto; gap: 10px;
       margin-bottom: 10px; align-items: end;
     }
     @media (max-width: 700px) { .batch-row { grid-template-columns: 1fr; } }
@@ -64,6 +64,7 @@
       <div class="field"><label>Business Name</label><input type="text" class="row-business" placeholder="e.g. Sunrise Plumbing Co" /></div>
       <div class="field"><label>City / Area</label><input type="text" class="row-city" placeholder="e.g. Melbourne, Australia" /></div>
       <div class="field"><label>Industry (optional)</label><input type="text" class="row-industry" placeholder="e.g. plumber" /></div>
+      <div class="field"><label>Email To (optional)</label><input type="email" class="row-email" placeholder="client@example.com" /></div>
       <button class="remove-row-btn" type="button" title="Remove">✕</button>
     `;
     row.querySelector('.remove-row-btn').addEventListener('click', () => {
@@ -95,6 +96,7 @@
       businessName: row.querySelector('.row-business').value.trim(),
       city: row.querySelector('.row-city').value.trim(),
       industry: row.querySelector('.row-industry').value.trim() || undefined,
+      recipientEmail: row.querySelector('.row-email').value.trim() || undefined,
     })).filter(i => i.businessName || i.city);
 
     if (!items.length) {

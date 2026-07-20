@@ -41,6 +41,7 @@
 
   <div class="report-card" id="report-card">
     <div class="report-actions" id="report-actions">
+      <button class="btn-sm" onclick="emailReport(currentReportId)">✉️ Email to Client</button>
       <button class="btn-sm" onclick="handleDownload()">⬇️ Download Report</button>
       <button class="btn-sm" onclick="copyReport()">📋 Copy Markdown</button>
       <button class="btn-sm" onclick="window.print()">🖨️ Print / Save as PDF</button>
@@ -54,6 +55,7 @@
 <script>
   let rawMarkdown = '';
   let currentBusinessName = '';
+  let currentReportId = null;
   let brandingCache = null;
 
   function handleDownload() {
@@ -82,6 +84,7 @@
       return;
     }
     const { report } = await res.json();
+    currentReportId = id;
 
     if (report.status === 'running') {
       document.getElementById('loading-notice').textContent = 'This report is still generating — refresh in a moment.';

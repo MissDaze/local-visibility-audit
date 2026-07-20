@@ -5,6 +5,7 @@ export interface BatchItemInput {
   businessName: string;
   city: string;
   industry?: string;
+  recipientEmail?: string;
 }
 
 export interface BatchItemRow {
@@ -14,6 +15,7 @@ export interface BatchItemRow {
   business_name: string;
   city: string;
   industry: string | null;
+  recipient_email: string | null;
   status: 'queued' | 'running' | 'complete' | 'error';
   status_detail: string | null;
   position: number;
@@ -38,9 +40,9 @@ export async function createBatch(tenantId: string, items: BatchItemInput[]): Pr
   let position = 0;
   for (const item of items) {
     await pool.query(
-      `INSERT INTO batch_items (id, batch_id, business_name, city, industry, status, position)
-       VALUES ($1, $2, $3, $4, $5, 'queued', $6)`,
-      [randomUUID(), batchId, item.businessName.trim(), item.city.trim(), item.industry?.trim() || null, position],
+      `INSERT INTO batch_items (id, batch_id, business_name, city, industry, recipient_email, status, position)
+       VALUES ($1, $2, $3, $4, $5, $6, 'queued', $7)`,
+      [randomUUID(), batchId, item.businessName.trim(), item.city.trim(), item.industry?.trim() || null, item.recipientEmail?.trim() || null, position],
     );
     position += 1;
   }
@@ -57,7 +59,7 @@ export async function getBatchForTenant(tenantId: string, batchId: string): Prom
   if (!batch) return null;
 
   const { rows: items } = await pool.query<BatchItemRow>(
-    `SELECT id, batch_id, report_id, business_name, city, industry, status, status_detail, position
+    `SELECT id, batch_id, report_id, business_name, city, industry, recipient_email, status, status_detail, position
      FROM batch_items WHERE batch_id = $1 ORDER BY position ASC`,
     [batchId],
   );

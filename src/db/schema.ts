@@ -102,6 +102,13 @@ export async function initSchema(): Promise<void> {
     );
   `);
 
+  // Additive, idempotent migrations — CREATE TABLE IF NOT EXISTS above only
+  // applies to a fresh database, it won't alter tables that already exist
+  // in production.
+  await pool.query(`
+    ALTER TABLE batch_items ADD COLUMN IF NOT EXISTS recipient_email TEXT;
+  `);
+
   for (const t of PRICING_SEED) {
     await pool.query(
       `INSERT INTO pricing_tiers

@@ -40,3 +40,25 @@ export async function createTenant(email: string, passwordHash: string, companyN
   );
   return rows[0];
 }
+
+export interface Branding {
+  companyName: string | null;
+  writtenBy: string | null;
+  logoDataUri: string | null;
+}
+
+// Shared by the branding settings page and the report-email feature — both
+// need the same "how does this tenant's branding render" logic.
+export async function getBranding(tenantId: string): Promise<Branding | null> {
+  const { rows } = await pool.query<{ company_name: string | null; brand_written_by: string | null; brand_logo: Buffer | null; brand_logo_mime: string | null }>(
+    `SELECT company_name, brand_written_by, brand_logo, brand_logo_mime FROM tenants WHERE id = $1`,
+    [tenantId],
+  );
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    companyName: row.company_name,
+    writtenBy: row.brand_written_by,
+    logoDataUri: row.brand_logo ? `data:${row.brand_logo_mime};base64,${row.brand_logo.toString('base64')}` : null,
+  };
+}

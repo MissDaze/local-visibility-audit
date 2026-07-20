@@ -1,6 +1,8 @@
 import { runAudit } from './runAudit';
 import { getBatchForTenant, updateBatchItem, incrementBatchCompleted, setBatchStatus } from '../db/batches';
 import { createRunningReport, completeReport, failReport } from '../db/reports';
+import { sendReportEmail } from '../email/sendReportEmail';
+import { emailConfigured } from '../email/resend';
 
 // Runs one batch's items sequentially (not in parallel) — Outscraper's
 // async job queue and the LLM stream already take 1-3 minutes per business;
@@ -40,6 +42,24 @@ export async function processBatch(tenantId: string, batchId: string, writtenBy:
       );
       await completeReport(reportId, result.markdown, result.debug);
       await updateBatchItem(item.id, { status: 'complete', status_detail: null });
+
+      const recipientEmail = item.recipient_email;
+      if (recipientEmail && emailConfigured()) {
+        try {
+          await sendReportEmail(
+            tenantId,
+            { business_name: item.business_name, status: 'complete', markdown: result.markdown, written_by: writtenBy },
+            recipientEmail,
+          );
+          await updateBatchItem(item.id, { status_detail: `Emailed to ${recipientEmail}` });
+        } catch (emailErr: unknown) {
+          // The report itself succeeded — a failed send shouldn't flip the
+          // item to "error" and hide a perfectly good report behind it.
+          const emailMsg = emailErr instanceof Error ? emailErr.message : 'Unknown error';
+          console.error(`[batch] email send failed for ${item.business_name}:`, emailMsg);
+          await updateBatchItem(item.id, { status_detail: `Report ready — email to ${recipientEmail} failed: ${emailMsg}` });
+        }
+      }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Unexpected error';
       console.error(`[batch] item failed: ${item.business_name} (${item.city}):`, msg);

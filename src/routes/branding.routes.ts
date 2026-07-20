@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import { pool } from '../db/pool';
+import { getBranding } from '../db/tenants';
 
 export const brandingRouter = Router();
 
@@ -13,35 +14,14 @@ const upload = multer({
   },
 });
 
-interface BrandingRow {
-  company_name: string | null;
-  brand_written_by: string | null;
-  brand_logo: Buffer | null;
-  brand_logo_mime: string | null;
-}
-
-async function loadBranding(tenantId: string): Promise<BrandingRow | null> {
-  const { rows } = await pool.query<BrandingRow>(
-    `SELECT company_name, brand_written_by, brand_logo, brand_logo_mime FROM tenants WHERE id = $1`,
-    [tenantId],
-  );
-  return rows[0] ?? null;
-}
-
 brandingRouter.get('/', async (req: Request, res: Response) => {
   const tenantId = req.session.tenantId!;
-  const row = await loadBranding(tenantId);
-  if (!row) {
+  const branding = await getBranding(tenantId);
+  if (!branding) {
     res.status(404).json({ error: 'Account not found.' });
     return;
   }
-  res.json({
-    companyName: row.company_name,
-    writtenBy: row.brand_written_by,
-    logoDataUri: row.brand_logo
-      ? `data:${row.brand_logo_mime};base64,${row.brand_logo.toString('base64')}`
-      : null,
-  });
+  res.json(branding);
 });
 
 brandingRouter.put('/', async (req: Request, res: Response) => {

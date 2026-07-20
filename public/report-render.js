@@ -233,3 +233,28 @@ ${writtenByHtml}
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
+
+// Prompts for a recipient and sends the already-saved report via
+// POST /api/reports/:id/email — the server renders the branded HTML and
+// sends it through Resend, so no report content needs to travel through
+// this call beyond the report ID.
+async function emailReport(reportId) {
+  if (!reportId) { alert('This report hasn\'t finished saving yet — try again in a moment.'); return; }
+
+  const to = window.prompt('Send this report to (client email address):');
+  if (!to) return;
+  const message = window.prompt('Optional short note to include (leave blank to skip):') || undefined;
+
+  try {
+    const res = await fetch(`/api/reports/${reportId}/email`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ to, message }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to send email.');
+    alert(`Report sent to ${to}.`);
+  } catch (e) {
+    alert(e.message);
+  }
+}
