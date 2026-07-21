@@ -32,9 +32,19 @@ export interface QuotaCheckResult {
 // future) is capped at the Solo Operator monthly allowance (30 reports).
 // This is a technical default, not a pricing decision — easy to change
 // later without touching the pricing_tiers table itself.
+// Comma-separated allowlist (e.g. "daisy@gmail.com,ops@ourcompany.com") that
+// bypasses quota entirely regardless of subscription/trial state — for
+// internal test/admin accounts, not customer plans.
+const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '')
+  .split(',')
+  .map(e => e.trim().toLowerCase())
+  .filter(Boolean);
+
 export async function checkAndReserveQuota(tenantId: string, count = 1): Promise<QuotaCheckResult> {
   const tenant = await findTenantById(tenantId);
   if (!tenant) return { allowed: false, reason: 'Account not found.' };
+
+  if (ADMIN_EMAILS.includes(tenant.email.toLowerCase())) return { allowed: true };
 
   const subscription = await getSubscriptionForTenant(tenantId);
   const isActiveSubscription = subscription?.status === 'active' && subscription.tier_id;
