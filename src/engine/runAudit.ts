@@ -83,12 +83,19 @@ export async function runAudit(
 
   onEvent({ status: `Fetching competitors and auditing websites…` });
 
-  console.log(`[outscraper] submitting competitor search: "${categoryHint} in ${city}"`);
+  // 12z zoom on a coordinate-anchored query approximates a 15km search radius
+  // on Google Maps, vs. a plain "in {city}" text query which Google scopes to
+  // the town/suburb boundary rather than a fixed distance.
+  const competitorQuery = subjectRecord?.latitude && subjectRecord?.longitude
+    ? `${categoryHint} @${subjectRecord.latitude},${subjectRecord.longitude},12z`
+    : `${categoryHint} in ${city}`;
+
+  console.log(`[outscraper] submitting competitor search: "${competitorQuery}"`);
   const [rawCandidates, subjectWebsiteAudit] = await Promise.all([
-    outscraperSearch(`${categoryHint} in ${city}`, 20)
+    outscraperSearch(competitorQuery, 20)
       .then(r => { console.log(`[outscraper] competitor search returned ${r.length} result(s)`); return r; })
       .catch((e: unknown) => {
-        console.error(`[outscraper] competitor search failed for "${categoryHint} in ${city}":`, e instanceof Error ? e.message : e);
+        console.error(`[outscraper] competitor search failed for "${competitorQuery}":`, e instanceof Error ? e.message : e);
         return [] as OutscraperRecord[];
       }),
 
