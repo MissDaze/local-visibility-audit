@@ -3,6 +3,8 @@ import express, { Request, Response } from 'express';
 import cors from 'cors';
 import path from 'path';
 import { initSchema } from '../db/schema';
+import { pool } from '../db/pool';
+import { resetAdminOnce } from '../db/resetAdmin';
 import { sessionMiddleware } from '../auth/session';
 import { requireAuth } from '../middleware/requireAuth';
 import { requireQuota } from '../middleware/requireQuota';
@@ -107,6 +109,7 @@ app.get('*', (_req, res) => {
 async function start() {
   try {
     await initSchema();
+    await resetAdminOnce(pool);
   } catch (e) {
     console.error('[db] schema init failed:', e instanceof Error ? e.message : e);
     process.exit(1);
