@@ -10,9 +10,16 @@ const CURRENCY = process.env.SQUARE_CURRENCY || 'AUD';
 export async function syncPricingPlansToSquare(): Promise<void> {
   if (process.env.BILLING_ENABLED !== 'true' || !squareConfigured()) return;
 
+  const squareApplicationId = process.env.SQUARE_APPLICATION_ID;
+  if (!squareApplicationId) {
+    console.error('[billing] SQUARE_APPLICATION_ID is required to safely scope Square plan IDs.');
+    return;
+  }
+
   const tiers = await listPricingTiers();
   for (const tier of tiers) {
-    if (tier.square_monthly_plan_id && tier.square_annual_plan_id) continue;
+    const belongsToCurrentApplication = tier.square_application_id === squareApplicationId;
+    if (belongsToCurrentApplication && tier.square_monthly_plan_id && tier.square_annual_plan_id) continue;
 
     try {
       const result = await createSquareSubscriptionPlan(
@@ -21,7 +28,12 @@ export async function syncPricingPlansToSquare(): Promise<void> {
         tier.annual_price_cents,
         CURRENCY,
       );
-      await setSquarePlanIds(tier.tier_id, result.monthlyVariationId, result.annualVariationId);
+      await setSquarePlanIds(
+        tier.tier_id,
+        result.monthlyVariationId,
+        result.annualVariationId,
+        squareApplicationId,
+      );
       console.log(`[billing] synced Square plan for tier "${tier.tier_id}"`);
     } catch (e: unknown) {
       console.error(`[billing] failed to sync Square plan for tier "${tier.tier_id}":`, e instanceof Error ? e.message : e);
