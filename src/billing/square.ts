@@ -170,6 +170,54 @@ export async function createSubscriptionCheckoutLink(params: {
 }
 
 
+export async function retrieveSquareCustomer(customerId: string): Promise<{ id: string; email: string | null }> {
+  const result = await squareFetch<{ customer: { id: string; email_address?: string } }>(
+    `/v2/customers/${encodeURIComponent(customerId)}`,
+  );
+  return {
+    id: result.customer.id,
+    email: result.customer.email_address?.trim().toLowerCase() || null,
+  };
+}
+
+export async function findLatestSquareSubscriptionForEmail(email: string): Promise<{
+  customerId: string;
+  subscriptionId: string;
+  status: string;
+  chargedThroughDate: string | null;
+} | null> {
+  const normalizedEmail = email.trim().toLowerCase();
+  const customerSearch = await squareFetch<{ customers?: { id: string; email_address?: string }[] }>(
+    '/v2/customers/search',
+    {
+      method: 'POST',
+      body: { query: { filter: { email_address: { exact: normalizedEmail } } } },
+    },
+  );
+  const customerIds = (customerSearch.customers || [])
+    .filter(customer => customer.email_address?.trim().toLowerCase() === normalizedEmail)
+    .map(customer => customer.id);
+  if (!customerIds.length) return null;
+
+  const subscriptionSearch = await squareFetch<{ subscriptions?: any[] }>('/v2/subscriptions/search', {
+    method: 'POST',
+    body: { query: { filter: { customer_ids: customerIds } } },
+  });
+  const candidates = (subscriptionSearch.subscriptions || [])
+    .filter(sub => !['CANCELED', 'DEACTIVATED'].includes(sub.status))
+    .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+  const subscription = candidates[0];
+  if (!subscription?.id || !subscription?.customer_id) return null;
+
+  return {
+    customerId: subscription.customer_id,
+    subscriptionId: subscription.id,
+    status: subscription.status || 'PENDING',
+    chargedThroughDate: subscription.charged_through_date || null,
+  };
+}
+
+
 export async function cancelSquareSubscription(subscriptionId: string): Promise<{ canceledDate: string | null }> {
   const result = await squareFetch<{ subscription?: { canceled_date?: string | null } }>(
     `/v2/subscriptions/${encodeURIComponent(subscriptionId)}/cancel`,
