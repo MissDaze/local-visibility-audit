@@ -13,6 +13,7 @@ import {
   createSubscriptionCheckoutLink,
   verifyWebhookSignature,
   squareConfigured,
+  cancelSquareSubscription,
 } from '../billing/square';
 
 export const billingRouter = Router();
@@ -41,6 +42,33 @@ billingRouter.get('/pricing', async (req: Request, res: Response) => {
       currentPeriodEnd: subscription.current_period_end,
     } : null,
   });
+});
+
+
+billingRouter.post('/cancel', async (req: Request, res: Response) => {
+  if (process.env.BILLING_ENABLED !== 'true' || !squareConfigured()) {
+    res.status(503).json({ error: 'Billing is not enabled on this deployment.' });
+    return;
+  }
+
+  const tenantId = req.session.tenantId!;
+  const subscription = await getSubscriptionForTenant(tenantId);
+  if (!subscription?.square_subscription_id) {
+    res.status(404).json({ error: 'No active Square subscription was found for this account.' });
+    return;
+  }
+
+  try {
+    const result = await cancelSquareSubscription(subscription.square_subscription_id);
+    await updateSubscriptionStatus(tenantId, {
+      status: 'canceling',
+      currentPeriodEnd: result.canceledDate ? `${result.canceledDate}T23:59:59Z` : subscription.current_period_end,
+    });
+    res.json({ ok: true, canceledDate: result.canceledDate });
+  } catch (e: unknown) {
+    console.error('[billing] cancellation failed:', e instanceof Error ? e.message : e);
+    res.status(500).json({ error: 'Could not cancel the subscription. Please try again or contact support.' });
+  }
 });
 
 billingRouter.post('/checkout', async (req: Request, res: Response) => {
