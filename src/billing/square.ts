@@ -146,6 +146,8 @@ export async function createSubscriptionCheckoutLink(params: {
   priceCents: number;
   currency: string;
   redirectUrl: string;
+  tenantId: string;
+  buyerEmail: string;
 }): Promise<string> {
   const result = await squareFetch<{ payment_link: { url: string } }>('/v2/online-checkout/payment-links', {
     method: 'POST',
@@ -154,6 +156,7 @@ export async function createSubscriptionCheckoutLink(params: {
       order: {
         location_id: process.env.SQUARE_LOCATION_ID,
         customer_id: params.squareCustomerId,
+        reference_id: params.tenantId,
         line_items: [{
           name: params.displayName,
           quantity: '1',
@@ -163,6 +166,9 @@ export async function createSubscriptionCheckoutLink(params: {
       checkout_options: {
         subscription_plan_id: params.planVariationId,
         redirect_url: params.redirectUrl,
+      },
+      pre_populated_data: {
+        buyer_email: params.buyerEmail,
       },
     },
   });
@@ -215,6 +221,62 @@ export async function findLatestSquareSubscriptionForEmail(email: string): Promi
     status: subscription.status || 'PENDING',
     chargedThroughDate: subscription.charged_through_date || null,
   };
+}
+
+
+async function resolveTenantReferenceFromSubscription(subscription: any): Promise<string | null> {
+  let fullSubscription = subscription;
+  if (!fullSubscription?.invoice_ids?.length && fullSubscription?.id) {
+    const result = await squareFetch<{ subscription: any }>(
+      `/v2/subscriptions/${encodeURIComponent(fullSubscription.id)}`,
+    );
+    fullSubscription = result.subscription;
+  }
+
+  for (const invoiceId of fullSubscription?.invoice_ids || []) {
+    const invoiceResult = await squareFetch<{ invoice: { order_id?: string } }>(
+      `/v2/invoices/${encodeURIComponent(invoiceId)}`,
+    );
+    const orderId = invoiceResult.invoice?.order_id;
+    if (!orderId) continue;
+    const orderResult = await squareFetch<{ order: { reference_id?: string } }>(
+      `/v2/orders/${encodeURIComponent(orderId)}`,
+    );
+    if (orderResult.order?.reference_id) return orderResult.order.reference_id;
+  }
+  return null;
+}
+
+export async function resolveSquareSubscriptionTenantReference(subscription: any): Promise<string | null> {
+  return resolveTenantReferenceFromSubscription(subscription);
+}
+
+export async function findLatestSquareSubscriptionForTenantReference(tenantId: string): Promise<{
+  customerId: string;
+  subscriptionId: string;
+  status: string;
+  chargedThroughDate: string | null;
+} | null> {
+  const result = await squareFetch<{ subscriptions?: any[] }>('/v2/subscriptions/search', {
+    method: 'POST',
+    body: {},
+  });
+  const candidates = (result.subscriptions || [])
+    .filter(sub => !['CANCELED', 'DEACTIVATED'].includes(sub.status))
+    .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+
+  for (const subscription of candidates.slice(0, 50)) {
+    const reference = await resolveTenantReferenceFromSubscription(subscription);
+    if (reference === tenantId && subscription.id && subscription.customer_id) {
+      return {
+        customerId: subscription.customer_id,
+        subscriptionId: subscription.id,
+        status: subscription.status || 'PENDING',
+        chargedThroughDate: subscription.charged_through_date || null,
+      };
+    }
+  }
+  return null;
 }
 
 
