@@ -103,8 +103,12 @@ billingRouter.post('/checkout', async (req: Request, res: Response) => {
   }
 
   try {
+    const squareApplicationId = process.env.SQUARE_APPLICATION_ID;
+    if (!squareApplicationId) {
+      throw new Error('SQUARE_APPLICATION_ID is not set.');
+    }
+
     const squareCustomerId = await findOrCreateSquareCustomer(tenantId, tenant.email);
-    await upsertPendingSubscription(tenantId, tierId, billingCycle, squareCustomerId);
 
     const priceCents = billingCycle === 'monthly' ? tier.monthly_price_cents : tier.annual_price_cents;
     const baseUrl = process.env.SITE_URL || `${req.protocol}://${req.get('host')}`;
@@ -117,6 +121,16 @@ billingRouter.post('/checkout', async (req: Request, res: Response) => {
       currency: CURRENCY,
       redirectUrl: `${baseUrl}/dashboard.html?checkout=success`,
     });
+
+    // Only mark the subscription pending after Square has successfully
+    // created a checkout link. Failed attempts must not disable checkout.
+    await upsertPendingSubscription(
+      tenantId,
+      tierId,
+      billingCycle,
+      squareCustomerId,
+      squareApplicationId,
+    );
 
     res.json({ url });
   } catch (e: unknown) {
