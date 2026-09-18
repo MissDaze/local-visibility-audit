@@ -25,6 +25,7 @@ export interface SubscriptionRow {
   status: string;
   current_period_end: string | null;
   square_application_id: string | null;
+  updated_at: string;
 }
 
 export async function listPricingTiers(): Promise<PricingTier[]> {
