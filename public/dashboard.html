@@ -133,7 +133,7 @@
     document.getElementById('welcome-title').textContent = me.companyName ? `Welcome, ${me.companyName}` : 'Dashboard';
     if (me.planTier === 'trial' && me.trialEndsAt) {
       document.getElementById('trial-note').textContent =
-        `Free trial — ends ${new Date(me.trialEndsAt).toLocaleDateString()}`;
+        `7-day free trial · up to 5 reports · ends ${new Date(me.trialEndsAt).toLocaleDateString()}`;
     }
     loadReports();
     loadBatches();

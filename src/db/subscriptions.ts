@@ -9,6 +9,7 @@ export interface PricingTier {
   bundle_size: number;
   bundle_price_cents: number;
   sort_order: number;
+  is_active: boolean;
   square_monthly_plan_id: string | null;
   square_annual_plan_id: string | null;
 }
@@ -24,7 +25,7 @@ export interface SubscriptionRow {
 }
 
 export async function listPricingTiers(): Promise<PricingTier[]> {
-  const { rows } = await pool.query<PricingTier>(`SELECT * FROM pricing_tiers ORDER BY sort_order ASC`);
+  const { rows } = await pool.query<PricingTier>(`SELECT * FROM pricing_tiers WHERE is_active = TRUE ORDER BY sort_order ASC`);
   return rows;
 }
 

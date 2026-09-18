@@ -48,10 +48,11 @@ export interface SquarePlanVariationResult {
   annualVariationId: string;
 }
 
-// Creates (or re-creates) a Square Catalog subscription plan with monthly
-// and annual variations for one pricing tier. Called once per tier when it
-// doesn't yet have Square plan IDs on file — pricing_tiers stays the source
-// of truth, this just mirrors it into Square's Catalog.
+// Creates a Square Catalog subscription plan with monthly and annual
+// variations for one pricing tier. The monthly variation includes a one-week
+// free phase followed by recurring monthly billing. Square Checkout supports
+// exactly this shape (one free phase + one paid phase) and stores the card
+// during hosted checkout so the paid phase can begin automatically.
 export async function createSquareSubscriptionPlan(
   tierName: string,
   monthlyPriceCents: number,
@@ -73,15 +74,33 @@ export async function createSquareSubscriptionPlan(
             subscription_plan_data: { name: tierName },
           },
           {
+            type: 'DISCOUNT',
+            id: '#trial-discount',
+            discount_data: {
+              name: `${tierName} - 7 Day Free Trial`,
+              discount_type: 'FIXED_PERCENTAGE',
+              percentage: '100',
+            },
+          },
+          {
             type: 'SUBSCRIPTION_PLAN_VARIATION',
             id: '#plan-monthly',
             subscription_plan_variation_data: {
-              name: `${tierName} - Monthly`,
+              name: `${tierName} - Monthly with 7 Day Trial`,
               subscription_plan_id: '#plan',
-              phases: [{
-                cadence: 'MONTHLY',
-                pricing: { type: 'STATIC', price_money: { amount: monthlyPriceCents, currency } },
-              }],
+              phases: [
+                {
+                  cadence: 'WEEKLY',
+                  ordinal: 0,
+                  periods: 1,
+                  pricing: { type: 'RELATIVE', discount_ids: ['#trial-discount'] },
+                },
+                {
+                  cadence: 'MONTHLY',
+                  ordinal: 1,
+                  pricing: { type: 'STATIC', price_money: { amount: monthlyPriceCents, currency } },
+                },
+              ],
             },
           },
           {
@@ -154,6 +173,15 @@ export async function createSubscriptionCheckoutLink(params: {
     },
   });
   return result.payment_link.url;
+}
+
+
+export async function cancelSquareSubscription(subscriptionId: string): Promise<{ canceledDate: string | null }> {
+  const result = await squareFetch<{ subscription?: { canceled_date?: string | null } }>(
+    `/v2/subscriptions/${encodeURIComponent(subscriptionId)}/cancel`,
+    { method: 'POST' },
+  );
+  return { canceledDate: result.subscription?.canceled_date ?? null };
 }
 
 // Square signs webhook bodies as base64(HMAC-SHA256(signatureKey, notificationUrl + rawBody)).

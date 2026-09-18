@@ -23,18 +23,9 @@ export interface QuotaCheckResult {
   reason?: string;
 }
 
-// Only meaningful when BILLING_ENABLED=true — the caller (requireQuota
-// middleware) skips this entirely otherwise, which is why the internal/demo
-// deployment (BILLING_ENABLED=false) is unaffected by any of this.
-//
-// Trial handling: there's no separate "trial quota" in the pricing doc, so
-// as a working default, an active trial (tenant.trial_ends_at in the
-// future) is capped at the Solo Operator monthly allowance (30 reports).
-// This is a technical default, not a pricing decision — easy to change
-// later without touching the pricing_tiers table itself.
-// Comma-separated allowlist (e.g. "daisy@gmail.com,ops@ourcompany.com") that
-// bypasses quota entirely regardless of subscription/trial state — for
-// internal test/admin accounts, not customer plans.
+const TRIAL_REPORT_LIMIT = 5;
+
+// Comma-separated allowlist for internal/admin accounts.
 const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '')
   .split(',')
   .map(e => e.trim().toLowerCase())
@@ -47,24 +38,59 @@ export async function checkAndReserveQuota(tenantId: string, count = 1): Promise
   if (ADMIN_EMAILS.includes(tenant.email.toLowerCase())) return { allowed: true };
 
   const subscription = await getSubscriptionForTenant(tenantId);
-  const isActiveSubscription = subscription?.status === 'active' && subscription.tier_id;
   const isOnTrial = new Date(tenant.trial_ends_at) > new Date();
 
-  let quota: number;
-  if (isActiveSubscription) {
-    const tier = await getPricingTier(subscription!.tier_id!);
-    if (!tier) return { allowed: false, reason: 'Your subscription tier could not be found — contact support.' };
-    quota = tier.reports_per_month;
-  } else if (isOnTrial) {
-    const soloTier = await getPricingTier('solo');
-    quota = soloTier?.reports_per_month ?? 30;
-  } else {
-    return { allowed: false, reason: 'Your free trial has ended. Subscribe to keep generating reports.' };
+  if (isOnTrial) {
+    // Trial access only starts once Square has created the subscription and
+    // stored the customer's payment method through hosted checkout.
+    const cardBackedTrial =
+      !!subscription?.square_subscription_id &&
+      (subscription.status === 'active' || subscription.status === 'pending' || subscription.status === 'canceling');
+
+    if (!cardBackedTrial) {
+      return {
+        allowed: false,
+        reason: 'Complete subscription setup to activate your 7-day free trial. Your card will not be charged until the trial ends.',
+      };
+    }
+
+    const { rows } = await pool.query<{ trial_reports_used: number }>(
+      `UPDATE tenants
+       SET trial_reports_used = trial_reports_used + $2
+       WHERE id = $1 AND trial_reports_used + $2 <= $3
+       RETURNING trial_reports_used`,
+      [tenantId, count, TRIAL_REPORT_LIMIT],
+    );
+
+    if (!rows.length) {
+      return {
+        allowed: false,
+        reason: 'Your free trial includes 5 reports. Monthly billing begins automatically when the 7-day trial ends.',
+      };
+    }
+
+    return { allowed: true };
   }
+
+  const cancellationStillActive =
+    subscription?.status === 'canceling' &&
+    !!subscription.current_period_end &&
+    new Date(subscription.current_period_end) > new Date();
+
+  const isActiveSubscription =
+    !!subscription?.tier_id &&
+    (subscription.status === 'active' || cancellationStillActive);
+
+  if (!isActiveSubscription) {
+    return { allowed: false, reason: 'Your free trial has ended. An active subscription is required to keep generating reports.' };
+  }
+
+  const tier = await getPricingTier(subscription!.tier_id!);
+  if (!tier) return { allowed: false, reason: 'Your subscription tier could not be found — contact support.' };
 
   const periodStart = currentPeriodStart();
   const usage = await getOrCreateUsageCounter(tenantId, periodStart);
-  const remaining = quota + usage.bundle_reports_remaining - usage.reports_used;
+  const remaining = tier.reports_per_month + usage.bundle_reports_remaining - usage.reports_used;
 
   if (remaining < count) {
     return { allowed: false, reason: `You only have ${Math.max(remaining, 0)} report(s) left in your monthly quota. Upgrade your plan or wait for it to reset next billing cycle.` };
