@@ -69,7 +69,7 @@
           <div class="tier-price">${fmtPrice(price)}<span> / mo</span></div>
           <div class="tier-reports">${t.reportsPerMonth} reports / month</div>
           <div class="tier-reports">Overage: ${fmtPrice(t.bundlePriceCents)} per ${t.bundleSize} reports</div>
-          <button class="btn small ${isCurrent ? 'secondary' : ''}" ${!pricingData.billingEnabled ? 'disabled' : ''}
+          <button class="btn small ${isCurrent ? 'secondary' : ''}" ${(!pricingData.billingEnabled || isCurrent) ? 'disabled' : ''}
             onclick="checkout('${t.tierId}')">
             ${isCurrent ? 'Current Plan' : (pricingData.billingEnabled ? 'Subscribe' : 'Unavailable')}
           </button>
