@@ -6,14 +6,17 @@ import {
   upsertPendingSubscription,
   findTenantIdBySquareCustomerId,
   updateSubscriptionStatus,
+  linkSquareSubscription,
 } from '../db/subscriptions';
-import { findTenantById } from '../db/tenants';
+import { findTenantById, findTenantByEmail } from '../db/tenants';
 import {
   findOrCreateSquareCustomer,
   createSubscriptionCheckoutLink,
   verifyWebhookSignature,
   squareConfigured,
   cancelSquareSubscription,
+  retrieveSquareCustomer,
+  findLatestSquareSubscriptionForEmail,
 } from '../billing/square';
 
 export const billingRouter = Router();
@@ -53,16 +56,40 @@ billingRouter.post('/cancel', async (req: Request, res: Response) => {
 
   const tenantId = req.session.tenantId!;
   const subscription = await getSubscriptionForTenant(tenantId);
-  if (!subscription?.square_subscription_id) {
-    res.status(404).json({ error: 'No active Square subscription was found for this account.' });
-    return;
-  }
 
   try {
-    const result = await cancelSquareSubscription(subscription.square_subscription_id);
+    let squareSubscriptionId = subscription?.square_subscription_id || null;
+    let recoveredPeriodEnd = subscription?.current_period_end || null;
+
+    // Square Checkout can create a different customer record from the one
+    // supplied on the order. Recover by the signed-in tenant's email when a
+    // webhook was missed or could not map that new Square customer ID.
+    if (!squareSubscriptionId) {
+      const tenant = await findTenantById(tenantId);
+      const recovered = tenant
+        ? await findLatestSquareSubscriptionForEmail(tenant.email)
+        : null;
+      if (!recovered) {
+        res.status(404).json({ error: 'No active Square subscription was found for this account.' });
+        return;
+      }
+      squareSubscriptionId = recovered.subscriptionId;
+      recoveredPeriodEnd = recovered.chargedThroughDate
+        ? `${recovered.chargedThroughDate}T00:00:00Z`
+        : null;
+      await linkSquareSubscription(
+        tenantId,
+        recovered.customerId,
+        recovered.subscriptionId,
+        mapSquareStatus(recovered.status),
+        recoveredPeriodEnd,
+      );
+    }
+
+    const result = await cancelSquareSubscription(squareSubscriptionId);
     await updateSubscriptionStatus(tenantId, {
       status: 'canceling',
-      currentPeriodEnd: result.canceledDate ? `${result.canceledDate}T23:59:59Z` : subscription.current_period_end,
+      currentPeriodEnd: result.canceledDate ? `${result.canceledDate}T23:59:59Z` : recoveredPeriodEnd,
     });
     res.json({ ok: true, canceledDate: result.canceledDate });
   } catch (e: unknown) {
@@ -176,7 +203,22 @@ export async function handleSquareWebhook(req: Request, res: Response): Promise<
             currentPeriodEnd: sub.charged_through_date ? `${sub.charged_through_date}T00:00:00Z` : null,
           });
         } else {
-          console.warn(`[billing] webhook: no tenant found for square customer ${sub.customer_id}`);
+          // Square Checkout may create a new customer ID. Retrieve the
+          // customer email and map it back to the tenant account.
+          const customer = await retrieveSquareCustomer(sub.customer_id);
+          const tenant = customer.email ? await findTenantByEmail(customer.email) : null;
+          if (tenant) {
+            await linkSquareSubscription(
+              tenant.id,
+              sub.customer_id,
+              sub.id,
+              mapSquareStatus(sub.status),
+              sub.charged_through_date ? `${sub.charged_through_date}T00:00:00Z` : null,
+            );
+            console.log(`[billing] webhook recovered tenant by Square customer email`);
+          } else {
+            console.warn(`[billing] webhook: no tenant found for square customer ${sub.customer_id}`);
+          }
         }
       }
     } else if (event.type === 'invoice.payment_made' || event.type === 'invoice.payment_failed') {
