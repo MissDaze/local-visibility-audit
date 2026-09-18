@@ -39,10 +39,10 @@
       no templated fluff, no generic score. Just the evidence that closes the deal.
     </p>
     <div class="hero-ctas">
-      <a class="btn btn-primary btn-lg" href="/signup.html">Start Your Free 14-Day Trial</a>
+      <a class="btn btn-primary btn-lg" href="/signup.html">Start Your Free 7-Day Trial</a>
       <a class="btn btn-ghost btn-lg" href="#use-cases">See How Your Business Uses It</a>
     </div>
-    <p class="hero-note">No credit card required to start · Cancel anytime</p>
+    <p class="hero-note">5 full reports included · Card required · Cancel before the trial ends to avoid billing</p>
   </div>
   <div class="hero-visual">
     <img src="/images/hero-report-preview.png" alt="Local Visibility Audit report preview — visibility score, review summary, competitor comparison, and website score on a laptop screen" loading="eager" />
@@ -51,10 +51,10 @@
 
 <div class="wrap" style="margin-bottom: 72px; margin-top: 56px;">
   <div class="offer-banner">
-    <span class="offer-tag">Founding Customer Offer</span>
+    <span class="offer-tag">Agency Trial</span>
     <div>
-      <p>Sign up in our first 90 days and lock in 25% off monthly plans — or 35% off annual — for life.</p>
-      <div class="offer-sub">Your discounted rate never increases, even as new customers join at full price.</div>
+      <p>Run up to 5 complete reports during your 7-day free trial, using your own agency logo and byline.</p>
+      <div class="offer-sub">Choose a monthly plan at signup. Your card is charged only after the trial ends unless you cancel first.</div>
     </div>
   </div>
 </div>
@@ -217,20 +217,17 @@
     <div class="section-head">
       <div class="kicker">Pricing</div>
       <h2>Simple, flat-fee tiers by report volume</h2>
-      <p>Every tier includes full white-label branding — it's never gated behind a higher plan. 14-day free trial on every tier.</p>
+      <p>Every tier includes agency branding, batch reporting, downloads and client-ready output. Start with a 7-day trial and up to 5 reports.</p>
     </div>
 
-    <div class="pricing-toggle">
-      <button id="toggle-monthly" class="active" onclick="setPricingCycle('monthly')">Monthly</button>
-      <button id="toggle-annual" onclick="setPricingCycle('annual')">Annual</button>
-    </div>
+    
 
     <div class="pricing-grid" id="pricing-grid">
       <div class="price-card"><p class="muted">Loading pricing…</p></div>
     </div>
 
     <p style="text-align:center; color:var(--muted); font-size:13px; margin-top:24px;">
-      Need more than 750 reports a month, or a plan that isn't listed? <a href="mailto:hello@localvisibilityaudit.com">Get in touch</a>.
+      Need more than 450 reports a month, or a plan that isn't listed? <a href="mailto:hello@localvisibilityaudit.com">Get in touch</a>.
     </p>
   </div>
 </section>
@@ -268,7 +265,7 @@
     </details>
     <details class="faq-item">
       <summary>What happens after my free trial?</summary>
-      <p>You'll be prompted to choose a plan before you're charged anything. No card is required to start the trial. Cancel anytime from your account.</p>
+      <p>You choose your monthly plan and add a payment method when you start the trial. You can use up to 5 reports during the 7-day trial. Unless you cancel before it ends, the selected monthly subscription starts automatically.</p>
     </details>
   </div>
 </section>
@@ -276,7 +273,7 @@
 <section>
   <div class="final-cta">
     <h2>See exactly what your first report looks like</h2>
-    <p>Start your free 14-day trial — no credit card required — and generate your first branded report today.</p>
+    <p>Start your 7-day free trial, generate up to 5 branded reports, and cancel before the trial ends if you don't want the monthly subscription to begin.</p>
     <a class="btn btn-primary btn-lg" href="/signup.html">Start Free Trial</a>
   </div>
 </section>
@@ -322,7 +319,6 @@
 <script>
   document.getElementById('year').textContent = new Date().getFullYear();
 
-  let pricingCycle = 'monthly';
   let pricingTiers = [];
 
   function fmt(cents) {
@@ -337,33 +333,22 @@
     }
 
     grid.innerHTML = pricingTiers.map((t, i) => {
-      const regular = pricingCycle === 'monthly' ? t.monthlyPriceCents : t.annualPriceCents;
-      const discount = pricingCycle === 'monthly' ? 0.75 : 0.65;
-      const founder = Math.round(regular * discount);
-      const period = pricingCycle === 'monthly' ? '/mo' : '/yr';
       const featured = i === 0;
 
       return `
         <div class="price-card ${featured ? 'featured' : ''}">
-          <div class="founder-badge">Founding price — locked for life</div>
+          ${featured ? '<div class="founder-badge">Best place to start</div>' : ''}
           <div class="tier-name">${t.name}</div>
-          <div class="strike">${fmt(regular)}${period}</div>
-          <div class="founder-price">${fmt(founder)}<span>${period}</span></div>
+          <div class="founder-price">${fmt(t.monthlyPriceCents)}<span>/mo</span></div>
           <div class="reports-line">${t.reportsPerMonth} reports / month</div>
+          <div class="reports-line">7-day trial · up to 5 trial reports</div>
           <a class="btn btn-primary" style="margin-top:10px;" href="/signup.html">Start Free Trial</a>
         </div>
       `;
     }).join('');
   }
 
-  function setPricingCycle(cycle) {
-    pricingCycle = cycle;
-    document.getElementById('toggle-monthly').classList.toggle('active', cycle === 'monthly');
-    document.getElementById('toggle-annual').classList.toggle('active', cycle === 'annual');
-    renderPricing();
-  }
-
-  fetch('/api/public/pricing')
+  fetch('//api/public/pricing')
     .then(r => r.json())
     .then(data => { pricingTiers = data.tiers || []; renderPricing(); })
     .catch(() => { document.getElementById('pricing-grid').innerHTML = '<p class="muted">Pricing is temporarily unavailable.</p>'; });
