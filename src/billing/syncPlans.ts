@@ -2,6 +2,7 @@ import { listPricingTiers, setSquarePlanIds } from '../db/subscriptions';
 import { createSquareSubscriptionPlan, squareConfigured } from './square';
 
 const CURRENCY = process.env.SQUARE_CURRENCY || 'AUD';
+const SQUARE_PLAN_VERSION = 'monthly-after-7-day-free-v2';
 
 // Mirrors any pricing_tiers rows that don't yet have Square plan IDs into
 // Square's Catalog. pricing_tiers stays the editable source of truth — this
@@ -19,7 +20,13 @@ export async function syncPricingPlansToSquare(): Promise<void> {
   const tiers = await listPricingTiers();
   for (const tier of tiers) {
     const belongsToCurrentApplication = tier.square_application_id === squareApplicationId;
-    if (belongsToCurrentApplication && tier.square_monthly_plan_id && tier.square_annual_plan_id) continue;
+    const usesCurrentPlanSchema = tier.square_plan_version === SQUARE_PLAN_VERSION;
+    if (
+      belongsToCurrentApplication &&
+      usesCurrentPlanSchema &&
+      tier.square_monthly_plan_id &&
+      tier.square_annual_plan_id
+    ) continue;
 
     try {
       const result = await createSquareSubscriptionPlan(
@@ -33,6 +40,7 @@ export async function syncPricingPlansToSquare(): Promise<void> {
         result.monthlyVariationId,
         result.annualVariationId,
         squareApplicationId,
+        SQUARE_PLAN_VERSION,
       );
       console.log(`[billing] synced Square plan for tier "${tier.tier_id}"`);
     } catch (e: unknown) {
