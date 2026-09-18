@@ -93,6 +93,36 @@ export async function findTenantIdBySquareCustomerId(squareCustomerId: string): 
   return rows[0]?.tenant_id ?? null;
 }
 
+
+export async function linkSquareSubscription(
+  tenantId: string,
+  squareCustomerId: string,
+  squareSubscriptionId: string,
+  status: string,
+  currentPeriodEnd: string | null,
+): Promise<void> {
+  await pool.query(
+    `INSERT INTO subscriptions
+       (tenant_id, square_customer_id, square_subscription_id, square_application_id, status, current_period_end, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, now())
+     ON CONFLICT (tenant_id) DO UPDATE SET
+       square_customer_id = EXCLUDED.square_customer_id,
+       square_subscription_id = EXCLUDED.square_subscription_id,
+       square_application_id = EXCLUDED.square_application_id,
+       status = EXCLUDED.status,
+       current_period_end = EXCLUDED.current_period_end,
+       updated_at = now()`,
+    [
+      tenantId,
+      squareCustomerId,
+      squareSubscriptionId,
+      process.env.SQUARE_APPLICATION_ID || null,
+      status,
+      currentPeriodEnd,
+    ],
+  );
+}
+
 export async function updateSubscriptionStatus(
   tenantId: string,
   fields: { squareSubscriptionId?: string; status?: string; currentPeriodEnd?: string | null; tierId?: string },
