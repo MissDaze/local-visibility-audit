@@ -108,6 +108,8 @@ export async function initSchema(): Promise<void> {
     ALTER TABLE tenants ADD COLUMN IF NOT EXISTS trial_reports_used INT NOT NULL DEFAULT 0;
     ALTER TABLE tenants ALTER COLUMN trial_ends_at SET DEFAULT (now() + interval '7 days');
     ALTER TABLE pricing_tiers ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+    ALTER TABLE pricing_tiers ADD COLUMN IF NOT EXISTS square_application_id TEXT;
+    ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS square_application_id TEXT;
 
     -- Keep legacy tiers for any existing subscribers, but stop offering them
     -- to new customers.
@@ -115,6 +117,34 @@ export async function initSchema(): Promise<void> {
       SET is_active = FALSE
       WHERE tier_id IN ('solo', 'freelancer', 'small_agency', 'med_agency', 'large_agency');
   `);
+
+  // Square object IDs belong to the application/account that created them.
+  // When credentials move to another Square application, discard all cached
+  // provider IDs so startup can create fresh plans and customers instead of
+  // sending old-account identifiers to the new account.
+  const squareApplicationId = process.env.SQUARE_APPLICATION_ID;
+  if (squareApplicationId) {
+    await pool.query(
+      `UPDATE pricing_tiers
+         SET square_monthly_plan_id = NULL,
+             square_annual_plan_id = NULL,
+             square_application_id = NULL,
+             updated_at = now()
+         WHERE square_application_id IS DISTINCT FROM $1`,
+      [squareApplicationId],
+    );
+    await pool.query(
+      `UPDATE subscriptions
+         SET square_customer_id = NULL,
+             square_subscription_id = NULL,
+             square_application_id = $1,
+             status = CASE WHEN status IN ('active', 'canceling') THEN status ELSE 'trialing' END,
+             current_period_end = CASE WHEN status IN ('active', 'canceling') THEN current_period_end ELSE NULL END,
+             updated_at = now()
+         WHERE square_application_id IS DISTINCT FROM $1`,
+      [squareApplicationId],
+    );
+  }
 
   for (const t of PRICING_SEED) {
     await pool.query(
