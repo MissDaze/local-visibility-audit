@@ -39,9 +39,8 @@
     Billing isn't enabled on this instance — this is the internal/demo deployment. Pricing shown below is for reference only.
   </div>
 
-  <div class="cycle-toggle">
-    <button class="cycle-btn active" id="monthly-btn" onclick="setCycle('monthly')">Monthly</button>
-    <button class="cycle-btn" id="annual-btn" onclick="setCycle('annual')">Annual (20% off)</button>
+  <div class="notice-box" style="margin-bottom:24px;">
+    Plans are billed monthly. New customers receive a 7-day free trial with up to 5 reports. A payment method is required and billing starts automatically after the trial unless cancelled.
   </div>
 
   <div class="tiers-grid" id="tiers-grid"></div>
@@ -49,30 +48,23 @@
 
 <script src="/nav.js"></script>
 <script>
-  let cycle = 'monthly';
+  const cycle = 'monthly';
   let pricingData = null;
 
   function fmtPrice(cents) {
     return '$' + (cents / 100).toFixed(2);
   }
 
-  function setCycle(c) {
-    cycle = c;
-    document.getElementById('monthly-btn').classList.toggle('active', c === 'monthly');
-    document.getElementById('annual-btn').classList.toggle('active', c === 'annual');
-    renderTiers();
-  }
-
   function renderTiers() {
     const grid = document.getElementById('tiers-grid');
     grid.innerHTML = pricingData.tiers.map(t => {
-      const price = cycle === 'monthly' ? t.monthlyPriceCents : t.annualPriceCents;
+      const price = t.monthlyPriceCents;
       const isCurrent = pricingData.subscription?.tierId === t.tierId && pricingData.subscription?.status === 'active';
       return `
         <div class="tier-card ${isCurrent ? 'current' : ''}">
           ${isCurrent ? '<span class="current-badge">Current Plan</span>' : ''}
           <div class="tier-name">${t.name}</div>
-          <div class="tier-price">${fmtPrice(price)}<span> / ${cycle === 'monthly' ? 'mo' : 'yr'}</span></div>
+          <div class="tier-price">${fmtPrice(price)}<span> / mo</span></div>
           <div class="tier-reports">${t.reportsPerMonth} reports / month</div>
           <div class="tier-reports">Overage: ${fmtPrice(t.bundlePriceCents)} per ${t.bundleSize} reports</div>
           <button class="btn small ${isCurrent ? 'secondary' : ''}" ${!pricingData.billingEnabled ? 'disabled' : ''}
