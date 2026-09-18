@@ -280,6 +280,41 @@ export async function findLatestSquareSubscriptionForTenantReference(tenantId: s
 }
 
 
+export async function findLegacySquareSubscriptionForCheckout(
+  planVariationId: string,
+  checkoutCreatedAt: string,
+): Promise<{
+  customerId: string;
+  subscriptionId: string;
+  status: string;
+  chargedThroughDate: string | null;
+} | null> {
+  const result = await squareFetch<{ subscriptions?: any[] }>('/v2/subscriptions/search', {
+    method: 'POST',
+    body: {},
+  });
+  const checkoutTime = new Date(checkoutCreatedAt).getTime();
+  const candidates = (result.subscriptions || [])
+    .filter(sub =>
+      sub.plan_variation_id === planVariationId &&
+      !['CANCELED', 'DEACTIVATED'].includes(sub.status) &&
+      Number.isFinite(new Date(sub.created_at).getTime()) &&
+      new Date(sub.created_at).getTime() >= checkoutTime &&
+      new Date(sub.created_at).getTime() <= checkoutTime + 15 * 60 * 1000
+    )
+    .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+
+  const subscription = candidates[0];
+  if (!subscription?.id || !subscription?.customer_id) return null;
+  return {
+    customerId: subscription.customer_id,
+    subscriptionId: subscription.id,
+    status: subscription.status || 'PENDING',
+    chargedThroughDate: subscription.charged_through_date || null,
+  };
+}
+
+
 export async function cancelSquareSubscription(subscriptionId: string): Promise<{ canceledDate: string | null }> {
   const result = await squareFetch<{ subscription?: { canceled_date?: string | null } }>(
     `/v2/subscriptions/${encodeURIComponent(subscriptionId)}/cancel`,
