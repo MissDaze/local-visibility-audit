@@ -253,7 +253,7 @@
     </details>
     <details class="faq-item">
       <summary>Can I re-run a report to show a client's progress without it costing extra?</summary>
-      <p>Yes — our tier report allowances are sized to cover routine monthly or quarterly re-runs across an existing client roster. Overage bundles exist for genuine overflow, not standard use.</p>
+      <p>Yes — each re-run uses one report from your monthly allowance. Plans are sized for routine monthly or quarterly re-runs, and you can move to a higher-volume plan as your client roster grows.</p>
     </details>
     <details class="faq-item">
       <summary>Will this fit into our existing client reporting workflow?</summary>
@@ -348,7 +348,7 @@
     }).join('');
   }
 
-  fetch('//api/public/pricing')
+  fetch('/api/public/pricing')
     .then(r => r.json())
     .then(data => { pricingTiers = data.tiers || []; renderPricing(); })
     .catch(() => { document.getElementById('pricing-grid').innerHTML = '<p class="muted">Pricing is temporarily unavailable.</p>'; });
