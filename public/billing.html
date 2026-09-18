@@ -43,6 +43,7 @@
     Plans are billed monthly. New customers receive a 7-day free trial with up to 5 reports. A payment method is required and billing starts automatically after the trial unless cancelled.
   </div>
 
+  <div id="subscription-actions" style="display:none;margin-bottom:24px;"></div>
   <div class="tiers-grid" id="tiers-grid"></div>
 </div>
 
@@ -59,7 +60,8 @@
     const grid = document.getElementById('tiers-grid');
     grid.innerHTML = pricingData.tiers.map(t => {
       const price = t.monthlyPriceCents;
-      const isCurrent = pricingData.subscription?.tierId === t.tierId && pricingData.subscription?.status === 'active';
+      const isCurrent = pricingData.subscription?.tierId === t.tierId &&
+        ['active', 'pending', 'canceling'].includes(pricingData.subscription?.status);
       return `
         <div class="tier-card ${isCurrent ? 'current' : ''}">
           ${isCurrent ? '<span class="current-badge">Current Plan</span>' : ''}
@@ -100,7 +102,39 @@
       ? `Current plan status: ${pricingData.subscription.status}`
       : 'Choose a plan below.';
 
+    const actions = document.getElementById('subscription-actions');
+    const sub = pricingData.subscription;
+    if (sub && ['active', 'pending'].includes(sub.status)) {
+      actions.style.display = 'block';
+      actions.innerHTML = `
+        <div class="card">
+          <strong>Manage subscription</strong>
+          <p class="muted" style="margin:8px 0 14px;">Cancel before your free trial ends to prevent the first monthly charge. After billing begins, cancellation stops future renewals.</p>
+          <button class="btn small secondary" onclick="cancelSubscription()">Cancel subscription</button>
+        </div>`;
+    } else if (sub?.status === 'canceling') {
+      actions.style.display = 'block';
+      actions.innerHTML = `
+        <div class="notice-box">Cancellation is scheduled. You will not be charged again after the current trial/billing period.</div>`;
+    } else {
+      actions.style.display = 'none';
+      actions.innerHTML = '';
+    }
+
     renderTiers();
+  }
+
+  async function cancelSubscription() {
+    if (!confirm('Cancel this subscription and stop future renewal charges?')) return;
+    try {
+      const res = await fetch('/api/billing/cancel', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Cancellation failed.');
+      alert('Cancellation scheduled successfully.');
+      await loadPricing();
+    } catch (e) {
+      alert(e.message);
+    }
   }
 
   (async () => {
