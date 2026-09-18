@@ -1,16 +1,12 @@
 import { pool } from './pool';
 
-// Suggested-target figures from the pricing doc (2026-07-19 draft) for the
-// tiers marked TBC there. Solo Operator is the only figure the user has
-// actually confirmed; the rest are seeded so Square plans + quota
-// enforcement have something to run against, and are editable via this
-// table afterwards (not hardcoded into billing logic).
+// Launch pricing for the agency-focused offer.
+// Annual values retain a 20% discount for existing billing support, although
+// new trial signups are enrolled on monthly billing by default.
 const PRICING_SEED = [
-  { tier_id: 'solo', name: 'Solo Operator', reports_per_month: 30, monthly_price_cents: 4495, annual_price_cents: 43152, bundle_size: 10, bundle_price_cents: 2750, sort_order: 1 },
-  { tier_id: 'freelancer', name: 'Freelancer', reports_per_month: 90, monthly_price_cents: 11595, annual_price_cents: 111312, bundle_size: 10, bundle_price_cents: 2300, sort_order: 2 },
-  { tier_id: 'small_agency', name: 'Small Agency', reports_per_month: 150, monthly_price_cents: 16695, annual_price_cents: 160272, bundle_size: 10, bundle_price_cents: 1900, sort_order: 3 },
-  { tier_id: 'med_agency', name: 'Med Agency', reports_per_month: 360, monthly_price_cents: 32395, annual_price_cents: 310992, bundle_size: 10, bundle_price_cents: 1695, sort_order: 4 },
-  { tier_id: 'large_agency', name: 'Large Agency', reports_per_month: 750, monthly_price_cents: 56395, annual_price_cents: 541392, bundle_size: 10, bundle_price_cents: 1395, sort_order: 5 },
+  { tier_id: 'agency_starter', name: 'Agency Starter', reports_per_month: 60, monthly_price_cents: 9900, annual_price_cents: 95040, bundle_size: 10, bundle_price_cents: 1900, sort_order: 1 },
+  { tier_id: 'agency_growth', name: 'Agency Growth', reports_per_month: 175, monthly_price_cents: 19900, annual_price_cents: 191040, bundle_size: 10, bundle_price_cents: 1900, sort_order: 2 },
+  { tier_id: 'agency_scale', name: 'Agency Scale', reports_per_month: 450, monthly_price_cents: 39900, annual_price_cents: 383040, bundle_size: 10, bundle_price_cents: 1900, sort_order: 3 },
 ];
 
 export async function initSchema(): Promise<void> {
@@ -21,7 +17,8 @@ export async function initSchema(): Promise<void> {
       password_hash TEXT NOT NULL,
       company_name TEXT,
       plan_tier TEXT NOT NULL DEFAULT 'trial',
-      trial_ends_at TIMESTAMPTZ NOT NULL DEFAULT (now() + interval '14 days'),
+      trial_ends_at TIMESTAMPTZ NOT NULL DEFAULT (now() + interval '7 days'),
+      trial_reports_used INT NOT NULL DEFAULT 0,
       brand_logo BYTEA,
       brand_logo_mime TEXT,
       brand_written_by TEXT,
@@ -85,6 +82,7 @@ export async function initSchema(): Promise<void> {
       bundle_size INT NOT NULL DEFAULT 10,
       bundle_price_cents INT NOT NULL,
       sort_order INT NOT NULL,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
       square_monthly_plan_id TEXT,
       square_annual_plan_id TEXT,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -107,6 +105,15 @@ export async function initSchema(): Promise<void> {
   // in production.
   await pool.query(`
     ALTER TABLE batch_items ADD COLUMN IF NOT EXISTS recipient_email TEXT;
+    ALTER TABLE tenants ADD COLUMN IF NOT EXISTS trial_reports_used INT NOT NULL DEFAULT 0;
+    ALTER TABLE tenants ALTER COLUMN trial_ends_at SET DEFAULT (now() + interval '7 days');
+    ALTER TABLE pricing_tiers ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+
+    -- Keep legacy tiers for any existing subscribers, but stop offering them
+    -- to new customers.
+    UPDATE pricing_tiers
+      SET is_active = FALSE
+      WHERE tier_id IN ('solo', 'freelancer', 'small_agency', 'med_agency', 'large_agency');
   `);
 
   for (const t of PRICING_SEED) {
@@ -114,7 +121,16 @@ export async function initSchema(): Promise<void> {
       `INSERT INTO pricing_tiers
         (tier_id, name, reports_per_month, monthly_price_cents, annual_price_cents, bundle_size, bundle_price_cents, sort_order)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       ON CONFLICT (tier_id) DO NOTHING`,
+       ON CONFLICT (tier_id) DO UPDATE SET
+         name = EXCLUDED.name,
+         reports_per_month = EXCLUDED.reports_per_month,
+         monthly_price_cents = EXCLUDED.monthly_price_cents,
+         annual_price_cents = EXCLUDED.annual_price_cents,
+         bundle_size = EXCLUDED.bundle_size,
+         bundle_price_cents = EXCLUDED.bundle_price_cents,
+         sort_order = EXCLUDED.sort_order,
+         is_active = TRUE,
+         updated_at = now()`,
       [t.tier_id, t.name, t.reports_per_month, t.monthly_price_cents, t.annual_price_cents, t.bundle_size, t.bundle_price_cents, t.sort_order],
     );
   }
