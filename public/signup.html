@@ -5,14 +5,23 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Start Free Trial — Local Visibility Audit</title>
   <link rel="stylesheet" href="/shared.css" />
+  <style>
+    .plan-grid { display:grid; gap:10px; margin-bottom:18px; }
+    .plan-option { display:block; border:1px solid var(--border); border-radius:8px; padding:14px; cursor:pointer; background:var(--surface2); }
+    .plan-option:has(input:checked) { border-color:var(--accent); }
+    .plan-top { display:flex; justify-content:space-between; gap:12px; font-weight:800; }
+    .plan-meta { color:var(--muted); font-size:12px; margin-top:3px; }
+    .consent { display:flex; gap:10px; align-items:flex-start; font-size:12px; color:var(--muted); line-height:1.5; }
+    .consent input { margin-top:3px; }
+  </style>
 </head>
 <body>
 
-<div class="page" style="max-width:420px; padding-top:80px;">
-  <div style="text-align:center; margin-bottom:32px;">
+<div class="page" style="max-width:460px; padding-top:60px;">
+  <div style="text-align:center; margin-bottom:28px;">
     <div style="font-size:32px; margin-bottom:10px;">📍</div>
-    <h1 class="page-title">Start your free trial</h1>
-    <p class="page-sub">14 days free, no card required to start.</p>
+    <h1 class="page-title">Start your 7-day free trial</h1>
+    <p class="page-sub">Generate up to 5 full reports with your own agency branding. Card required. Cancel before the trial ends and you won't be charged.</p>
   </div>
 
   <div class="card">
@@ -30,7 +39,34 @@
         <label>Password</label>
         <input type="password" id="password" placeholder="At least 8 characters" required minlength="8" />
       </div>
-      <button type="submit" class="btn full" id="submit-btn">Create Account</button>
+
+      <label style="display:block;margin-bottom:8px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;">Choose your monthly plan</label>
+      <div class="plan-grid">
+        <label class="plan-option">
+          <input type="radio" name="plan" value="agency_starter" checked />
+          <div class="plan-top"><span>Agency Starter</span><span>A$99/mo</span></div>
+          <div class="plan-meta">60 reports per month after your trial</div>
+        </label>
+        <label class="plan-option">
+          <input type="radio" name="plan" value="agency_growth" />
+          <div class="plan-top"><span>Agency Growth</span><span>A$199/mo</span></div>
+          <div class="plan-meta">175 reports per month after your trial</div>
+        </label>
+        <label class="plan-option">
+          <input type="radio" name="plan" value="agency_scale" />
+          <div class="plan-top"><span>Agency Scale</span><span>A$399/mo</span></div>
+          <div class="plan-meta">450 reports per month after your trial</div>
+        </label>
+      </div>
+
+      <div class="field">
+        <label class="consent">
+          <input type="checkbox" id="billingConsent" required />
+          <span>I agree to the <a href="/terms.html" target="_blank">Terms</a> and authorise recurring monthly billing for the selected plan after my 7-day free trial unless I cancel before the trial ends.</span>
+        </label>
+      </div>
+
+      <button type="submit" class="btn full" id="submit-btn">Continue to secure card setup</button>
     </form>
   </div>
 
@@ -50,11 +86,17 @@
     const errorContainer = document.getElementById('error-container');
     const submitBtn = document.getElementById('submit-btn');
     errorContainer.innerHTML = '';
+
+    if (!document.getElementById('billingConsent').checked) {
+      errorContainer.innerHTML = '<div class="error-box">You must agree to the trial and recurring billing terms to continue.</div>';
+      return;
+    }
+
     submitBtn.disabled = true;
-    submitBtn.textContent = 'Creating account…';
+    submitBtn.textContent = 'Setting up your trial…';
 
     try {
-      const res = await fetch('/api/auth/signup', {
+      const signupRes = await fetch('/api/auth/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -63,13 +105,23 @@
           password: document.getElementById('password').value,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Signup failed.');
-      window.location.href = '/dashboard.html';
+      const signupData = await signupRes.json();
+      if (!signupRes.ok) throw new Error(signupData.error || 'Signup failed.');
+
+      const tierId = document.querySelector('input[name="plan"]:checked').value;
+      const checkoutRes = await fetch('/api/billing/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tierId, billingCycle: 'monthly' }),
+      });
+      const checkoutData = await checkoutRes.json();
+      if (!checkoutRes.ok) throw new Error(checkoutData.error || 'Could not start secure card setup.');
+
+      window.location.href = checkoutData.url;
     } catch (err) {
       errorContainer.innerHTML = `<div class="error-box">${err.message}</div>`;
       submitBtn.disabled = false;
-      submitBtn.textContent = 'Create Account';
+      submitBtn.textContent = 'Continue to secure card setup';
     }
   });
 </script>
