@@ -74,15 +74,6 @@ export async function createSquareSubscriptionPlan(
             subscription_plan_data: { name: tierName },
           },
           {
-            type: 'DISCOUNT',
-            id: '#trial-discount',
-            discount_data: {
-              name: `${tierName} - 7 Day Free Trial`,
-              discount_type: 'FIXED_PERCENTAGE',
-              percentage: '100',
-            },
-          },
-          {
             type: 'SUBSCRIPTION_PLAN_VARIATION',
             id: '#plan-monthly',
             subscription_plan_variation_data: {
@@ -93,7 +84,10 @@ export async function createSquareSubscriptionPlan(
                   cadence: 'WEEKLY',
                   ordinal: 0,
                   periods: 1,
-                  pricing: { type: 'RELATIVE', discount_ids: ['#trial-discount'] },
+                  pricing: {
+                    type: 'STATIC',
+                    price_money: { amount: 0, currency },
+                  },
                 },
                 {
                   cadence: 'MONTHLY',
