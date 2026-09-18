@@ -109,6 +109,7 @@ export async function initSchema(): Promise<void> {
     ALTER TABLE tenants ALTER COLUMN trial_ends_at SET DEFAULT (now() + interval '7 days');
     ALTER TABLE pricing_tiers ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
     ALTER TABLE pricing_tiers ADD COLUMN IF NOT EXISTS square_application_id TEXT;
+    ALTER TABLE pricing_tiers ADD COLUMN IF NOT EXISTS square_plan_version TEXT;
     ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS square_application_id TEXT;
 
     -- Keep legacy tiers for any existing subscribers, but stop offering them
