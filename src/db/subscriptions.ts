@@ -13,6 +13,7 @@ export interface PricingTier {
   square_monthly_plan_id: string | null;
   square_annual_plan_id: string | null;
   square_application_id: string | null;
+  square_plan_version: string | null;
 }
 
 export interface SubscriptionRow {
@@ -41,15 +42,17 @@ export async function setSquarePlanIds(
   monthlyPlanId: string,
   annualPlanId: string,
   squareApplicationId: string,
+  squarePlanVersion: string,
 ): Promise<void> {
   await pool.query(
     `UPDATE pricing_tiers
        SET square_monthly_plan_id = $2,
            square_annual_plan_id = $3,
            square_application_id = $4,
+           square_plan_version = $5,
            updated_at = now()
        WHERE tier_id = $1`,
-    [tierId, monthlyPlanId, annualPlanId, squareApplicationId],
+    [tierId, monthlyPlanId, annualPlanId, squareApplicationId, squarePlanVersion],
   );
 }
 
