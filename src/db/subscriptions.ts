@@ -12,6 +12,7 @@ export interface PricingTier {
   is_active: boolean;
   square_monthly_plan_id: string | null;
   square_annual_plan_id: string | null;
+  square_application_id: string | null;
 }
 
 export interface SubscriptionRow {
@@ -22,6 +23,7 @@ export interface SubscriptionRow {
   square_subscription_id: string | null;
   status: string;
   current_period_end: string | null;
+  square_application_id: string | null;
 }
 
 export async function listPricingTiers(): Promise<PricingTier[]> {
@@ -34,10 +36,20 @@ export async function getPricingTier(tierId: string): Promise<PricingTier | null
   return rows[0] ?? null;
 }
 
-export async function setSquarePlanIds(tierId: string, monthlyPlanId: string, annualPlanId: string): Promise<void> {
+export async function setSquarePlanIds(
+  tierId: string,
+  monthlyPlanId: string,
+  annualPlanId: string,
+  squareApplicationId: string,
+): Promise<void> {
   await pool.query(
-    `UPDATE pricing_tiers SET square_monthly_plan_id = $2, square_annual_plan_id = $3, updated_at = now() WHERE tier_id = $1`,
-    [tierId, monthlyPlanId, annualPlanId],
+    `UPDATE pricing_tiers
+       SET square_monthly_plan_id = $2,
+           square_annual_plan_id = $3,
+           square_application_id = $4,
+           updated_at = now()
+       WHERE tier_id = $1`,
+    [tierId, monthlyPlanId, annualPlanId, squareApplicationId],
   );
 }
 
@@ -51,17 +63,22 @@ export async function upsertPendingSubscription(
   tierId: string,
   billingCycle: 'monthly' | 'annual',
   squareCustomerId: string,
+  squareApplicationId: string,
 ): Promise<void> {
   await pool.query(
-    `INSERT INTO subscriptions (tenant_id, tier_id, billing_cycle, square_customer_id, status, updated_at)
-     VALUES ($1, $2, $3, $4, 'pending', now())
+    `INSERT INTO subscriptions
+       (tenant_id, tier_id, billing_cycle, square_customer_id, square_application_id, status, updated_at)
+     VALUES ($1, $2, $3, $4, $5, 'pending', now())
      ON CONFLICT (tenant_id) DO UPDATE SET
        tier_id = EXCLUDED.tier_id,
        billing_cycle = EXCLUDED.billing_cycle,
        square_customer_id = EXCLUDED.square_customer_id,
+       square_application_id = EXCLUDED.square_application_id,
+       square_subscription_id = NULL,
        status = 'pending',
+       current_period_end = NULL,
        updated_at = now()`,
-    [tenantId, tierId, billingCycle, squareCustomerId],
+    [tenantId, tierId, billingCycle, squareCustomerId, squareApplicationId],
   );
 }
 
