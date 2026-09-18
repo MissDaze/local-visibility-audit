@@ -45,7 +45,7 @@ export async function checkAndReserveQuota(tenantId: string, count = 1): Promise
     // stored the customer's payment method through hosted checkout.
     const cardBackedTrial =
       !!subscription?.square_subscription_id &&
-      (subscription.status === 'active' || subscription.status === 'pending');
+      (subscription.status === 'active' || subscription.status === 'pending' || subscription.status === 'canceling');
 
     if (!cardBackedTrial) {
       return {
@@ -72,7 +72,15 @@ export async function checkAndReserveQuota(tenantId: string, count = 1): Promise
     return { allowed: true };
   }
 
-  const isActiveSubscription = subscription?.status === 'active' && subscription.tier_id;
+  const cancellationStillActive =
+    subscription?.status === 'canceling' &&
+    !!subscription.current_period_end &&
+    new Date(subscription.current_period_end) > new Date();
+
+  const isActiveSubscription =
+    !!subscription?.tier_id &&
+    (subscription.status === 'active' || cancellationStillActive);
+
   if (!isActiveSubscription) {
     return { allowed: false, reason: 'Your free trial has ended. An active subscription is required to keep generating reports.' };
   }
