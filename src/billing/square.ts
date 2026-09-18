@@ -175,6 +175,15 @@ export async function createSubscriptionCheckoutLink(params: {
   return result.payment_link.url;
 }
 
+
+export async function cancelSquareSubscription(subscriptionId: string): Promise<{ canceledDate: string | null }> {
+  const result = await squareFetch<{ subscription?: { canceled_date?: string | null } }>(
+    `/v2/subscriptions/${encodeURIComponent(subscriptionId)}/cancel`,
+    { method: 'POST' },
+  );
+  return { canceledDate: result.subscription?.canceled_date ?? null };
+}
+
 // Square signs webhook bodies as base64(HMAC-SHA256(signatureKey, notificationUrl + rawBody)).
 // `rawBody` must be the exact bytes Square sent — this only works if the
 // webhook route reads the body before any JSON-parsing middleware touches it.
