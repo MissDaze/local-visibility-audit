@@ -17,6 +17,8 @@ import {
   cancelSquareSubscription,
   retrieveSquareCustomer,
   findLatestSquareSubscriptionForEmail,
+  findLatestSquareSubscriptionForTenantReference,
+  resolveSquareSubscriptionTenantReference,
 } from '../billing/square';
 
 export const billingRouter = Router();
@@ -67,7 +69,10 @@ billingRouter.post('/cancel', async (req: Request, res: Response) => {
     if (!squareSubscriptionId) {
       const tenant = await findTenantById(tenantId);
       const recovered = tenant
-        ? await findLatestSquareSubscriptionForEmail(tenant.email)
+        ? (
+            await findLatestSquareSubscriptionForTenantReference(tenantId) ||
+            await findLatestSquareSubscriptionForEmail(tenant.email)
+          )
         : null;
       if (!recovered) {
         res.status(404).json({ error: 'No active Square subscription was found for this account.' });
@@ -147,6 +152,8 @@ billingRouter.post('/checkout', async (req: Request, res: Response) => {
       priceCents,
       currency: CURRENCY,
       redirectUrl: `${baseUrl}/dashboard.html?checkout=success`,
+      tenantId,
+      buyerEmail: tenant.email,
     });
 
     // Only mark the subscription pending after Square has successfully
@@ -206,7 +213,11 @@ export async function handleSquareWebhook(req: Request, res: Response): Promise<
           // Square Checkout may create a new customer ID. Retrieve the
           // customer email and map it back to the tenant account.
           const customer = await retrieveSquareCustomer(sub.customer_id);
-          const tenant = customer.email ? await findTenantByEmail(customer.email) : null;
+          let tenant = customer.email ? await findTenantByEmail(customer.email) : null;
+          if (!tenant) {
+            const tenantReference = await resolveSquareSubscriptionTenantReference(sub);
+            tenant = tenantReference ? await findTenantById(tenantReference) : null;
+          }
           if (tenant) {
             await linkSquareSubscription(
               tenant.id,
