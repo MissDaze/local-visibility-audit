@@ -19,6 +19,7 @@ import {
   findLatestSquareSubscriptionForEmail,
   findLatestSquareSubscriptionForTenantReference,
   resolveSquareSubscriptionTenantReference,
+  findLegacySquareSubscriptionForCheckout,
 } from '../billing/square';
 
 export const billingRouter = Router();
@@ -68,12 +69,29 @@ billingRouter.post('/cancel', async (req: Request, res: Response) => {
     // webhook was missed or could not map that new Square customer ID.
     if (!squareSubscriptionId) {
       const tenant = await findTenantById(tenantId);
-      const recovered = tenant
+      let recovered = tenant
         ? (
             await findLatestSquareSubscriptionForTenantReference(tenantId) ||
             await findLatestSquareSubscriptionForEmail(tenant.email)
           )
         : null;
+
+      // Compatibility for trials created before checkout orders carried the
+      // tenant reference: constrain the match to this account's chosen plan
+      // and the 15-minute window immediately following its checkout request.
+      if (!recovered && subscription?.tier_id && subscription?.updated_at) {
+        const tier = await getPricingTier(subscription.tier_id);
+        const planVariationId = subscription.billing_cycle === 'annual'
+          ? tier?.square_annual_plan_id
+          : tier?.square_monthly_plan_id;
+        if (planVariationId) {
+          recovered = await findLegacySquareSubscriptionForCheckout(
+            planVariationId,
+            subscription.updated_at,
+          );
+        }
+      }
+
       if (!recovered) {
         res.status(404).json({ error: 'No active Square subscription was found for this account.' });
         return;
