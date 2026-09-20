@@ -1,9 +1,17 @@
 import { marked } from 'marked';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { Branding } from '../db/tenants';
 
-// Server-side mirror of public/report-render.js's downloadReport() —
-// same styling, same letterhead treatment — so an emailed report looks
-// identical to the one a tenant would download themselves.
+// Share the browser renderer and local CSS. No change to delivery, stored
+// Markdown, branding settings, or the short email cover note below.
+const { buildReportDocument } = require('../../public/report-render.js') as {
+  buildReportDocument: (
+    businessName: string, html: string, branding: Branding | null,
+    writtenBy: string | null, generatedAt: string, css: string,
+  ) => string;
+};
+
 export function renderBrandedReportHtml(
   businessName: string,
   markdown: string,
@@ -12,51 +20,8 @@ export function renderBrandedReportHtml(
   generatedAt: string,
 ): string {
   const reportHtml = marked.parse(markdown, { async: false }) as string;
-  const title = branding?.companyName || 'Business Growth Assessment';
-  const generatedAtLabel = new Date(generatedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
-
-  const letterheadHtml = (branding && (branding.logoDataUri || branding.companyName))
-    ? `<div style="display:flex;align-items:center;gap:16px;padding-bottom:20px;margin-bottom:20px;border-bottom:1px solid #2e3347;">
-        ${branding.logoDataUri ? `<img src="${branding.logoDataUri}" style="max-height:64px;max-width:220px;object-fit:contain" />` : ''}
-        ${branding.companyName ? `<div style="font-size:16px;font-weight:800;">${branding.companyName}</div>` : ''}
-      </div>`
-    : '';
-  const writtenByHtml = writtenBy ? `<div style="font-size:12px;color:#8892aa;">Prepared by ${writtenBy}</div>` : '';
-  const generatedAtHtml = `<div style="font-size:12px;color:#8892aa;margin-bottom:24px;">Report generated: ${generatedAtLabel}</div>`;
-
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8" />
-<title>${businessName} — ${title}</title>
-<style>
-  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-  body{background:#0f1117;color:#e2e8f0;font-family:'Inter',system-ui,-apple-system,sans-serif;line-height:1.8;padding:48px 24px}
-  .wrap{max-width:720px;margin:0 auto;background:#1a1d27;border:1px solid #2e3347;border-radius:10px;padding:36px}
-  #report-content h1{font-size:22px;font-weight:800;letter-spacing:-0.4px;margin-bottom:4px}
-  #report-content h2{font-size:17px;font-weight:700;color:#6366f1;margin-top:36px;margin-bottom:14px;border-bottom:1px solid #2e3347;padding-bottom:8px}
-  #report-content h3{font-size:15px;font-weight:700;margin-top:22px;margin-bottom:8px}
-  #report-content p{margin-bottom:12px}
-  #report-content ul,#report-content ol{padding-left:20px;margin-bottom:12px}
-  #report-content li{margin-bottom:6px}
-  #report-content table{width:100%;border-collapse:collapse;margin-bottom:20px;font-size:14px}
-  #report-content th{background:#222534;padding:9px 14px;text-align:left;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#8892aa;border-bottom:1px solid #2e3347}
-  #report-content td{padding:10px 14px;border-bottom:1px solid #2e3347}
-  #report-content strong{font-weight:700;color:#fff}
-  #report-content em{color:#8892aa}
-  #report-content hr{border:none;border-top:1px solid #2e3347;margin:28px 0}
-  @media print { body{background:#fff;color:#111;padding:0} .wrap{border:none;padding:0} #report-content h2{color:#111} }
-</style>
-</head>
-<body>
-<div class="wrap">
-${letterheadHtml}
-${writtenByHtml}
-${generatedAtHtml}
-<div id="report-content">${reportHtml}</div>
-</div>
-</body>
-</html>`;
+  const css = readFileSync(join(__dirname, '../../public/report.css'), 'utf8');
+  return buildReportDocument(businessName, reportHtml, branding, writtenBy, generatedAt, css);
 }
 
 // Short wrapper email — the full report goes as an attached HTML file
