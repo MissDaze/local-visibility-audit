@@ -1,5 +1,6 @@
 import { OutscraperRecord } from '../types/outscraper';
 import { ScoredCompetitor, isValidWebsite } from './relevance';
+import { formatBenchmarkRank } from '../reports/rankings';
 
 export interface BenchmarkData {
   // Sample
@@ -26,6 +27,9 @@ export interface BenchmarkData {
   subjectRatingRank: number | null;
   subjectReviewRank: number | null;
   subjectPhotoRank: number | null;
+  subjectRatingRankLabel: string;
+  subjectReviewRankLabel: string;
+  subjectPhotoRankLabel: string;
 
   // Confidence
   benchmarkConfidence: number;
@@ -104,6 +108,9 @@ export function computeBenchmarks(
   const subjectRatingRank = rankDesc(subjRating, ratings);
   const subjectReviewRank = rankDesc(subjReviews, reviews);
   const subjectPhotoRank = rankDesc(subjPhotos, photos);
+  const subjectRatingRankLabel = formatBenchmarkRank(subjectRatingRank, ratings.length);
+  const subjectReviewRankLabel = formatBenchmarkRank(subjectReviewRank, reviews.length);
+  const subjectPhotoRankLabel = formatBenchmarkRank(subjectPhotoRank, photos.length);
 
   // ── Benchmark confidence ─────────────────────────────────────────────────
   const confidenceReasons: string[] = [];
@@ -171,7 +178,7 @@ export function computeBenchmarks(
       );
     }
     constraints.push(
-      `VALIDATED — RATING RANK: Subject (${subjRating}★) ranks #${subjectRatingRank} of ${ratings.length} competitors. ` +
+      `VALIDATED — RATING RANK: Subject (${subjRating}★): ${subjectRatingRankLabel}. ` +
       `Market average: ${avgRating}★. Market leader: ${maxRating}★.`,
     );
   }
@@ -191,16 +198,16 @@ export function computeBenchmarks(
       );
     }
     constraints.push(
-      `VALIDATED — REVIEW RANK: Subject (${subjReviews} reviews) ranks #${subjectReviewRank} of ` +
-      `${reviews.length} competitors. Market average: ${avgReviews}. Market leader: ${maxReviews}.`,
+      `VALIDATED — REVIEW RANK: Subject (${subjReviews} reviews): ${subjectReviewRankLabel}. ` +
+      `Market average: ${avgReviews}. Market leader: ${maxReviews}.`,
     );
   }
 
   // Photo rank
   if (subjectPhotoRank !== null && subjPhotos !== null) {
     constraints.push(
-      `VALIDATED — PHOTO RANK: Subject (${subjPhotos} photos) ranks #${subjectPhotoRank} of ` +
-      `${photos.length} competitors. Market average: ${avgPhotos}. Market leader: ${maxPhotos}.`,
+      `VALIDATED — PHOTO RANK: Subject (${subjPhotos} photos): ${subjectPhotoRankLabel}. ` +
+      `Market average: ${avgPhotos}. Market leader: ${maxPhotos}.`,
     );
   }
 
@@ -222,6 +229,9 @@ export function computeBenchmarks(
     subjectRatingRank,
     subjectReviewRank,
     subjectPhotoRank,
+    subjectRatingRankLabel,
+    subjectReviewRankLabel,
+    subjectPhotoRankLabel,
     benchmarkConfidence: confidence,
     confidenceReasons,
     constraints,

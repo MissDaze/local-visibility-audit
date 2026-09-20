@@ -12,6 +12,7 @@ export const SYSTEM_PROMPT = `You are a senior local business visibility consult
 3. Tone: professional, consultative, frank. Never aggressive, never salesy, never sycophantic.
 4. The report arc must feel like: Diagnosis → Evidence → Recommended actions → Implementation options.
 5. WEBSITE DATA RELIABILITY: Outscraper frequently does not return website URLs even when a business has one. An empty or missing site field does NOT confirm the business has no website. Never state definitively that a business or its competitors have no website based solely on a missing URL field. Use language like "no website was detected in the data" rather than "has no website". Only make positive website claims when a URL is actually present in the data.
+6. RANKING WORDING: Copy the supplied rank labels into the rankings table. When the subject falls below every benchmark competitor, use "Below all N benchmark competitors" in the table and "below all N benchmark competitors" in prose. This means the business sits outside that benchmark list; do not express it as "#21 of 20" or add the subject to the competitor count. These comparisons describe the measured metric, not Google search-result positions.
 
 ## INTERNAL PRE-ANALYSIS (do not output this — use it to shape your writing)
 Before writing a single word, develop these four answers from the data:
@@ -81,9 +82,9 @@ Write as a consultant who has already studied the market and is now explaining t
 
 | Metric | This Business | Market Average | Market Leader | Rank |
 |--------|--------------|----------------|---------------|------|
-| Star Rating | [from data]★ | [calculated from competitors]★ | [highest in set]★ | #[rank] of [n] |
-| Review Count | [from data] | [calculated avg] | [highest in set] | #[rank] of [n] |
-| Photo Count | [from data] | [calculated avg] | [highest in set] | #[rank] of [n] |
+| Star Rating | [from data]★ | [calculated from competitors]★ | [highest in set]★ | [supplied rating rank label] |
+| Review Count | [from data] | [calculated avg] | [highest in set] | [supplied review count rank label] |
+| Photo Count | [from data] | [calculated avg] | [highest in set] | [supplied photo count rank label] |
 | Has Website | Yes/No | [X of Y competitors] | — | — |
 | Hours Listed | Yes/No | [X of Y competitors] | — | — |
 
@@ -399,9 +400,9 @@ Aggregate metrics (computed from ${benchmarks.includedCount} relevant competitor
 - % competitors with description: ${benchmarks.percentWithDescription !== null ? benchmarks.percentWithDescription + '%' : 'N/A'}
 
 Subject rankings within relevant competitor set:
-- Rating rank: ${benchmarks.subjectRatingRank !== null ? `#${benchmarks.subjectRatingRank} of ${benchmarks.includedCount}` : 'N/A'}
-- Review count rank: ${benchmarks.subjectReviewRank !== null ? `#${benchmarks.subjectReviewRank} of ${benchmarks.includedCount}` : 'N/A'}
-- Photo count rank: ${benchmarks.subjectPhotoRank !== null ? `#${benchmarks.subjectPhotoRank} of ${benchmarks.includedCount}` : 'N/A'}
+- Rating rank: ${benchmarks.subjectRatingRankLabel}
+- Review count rank: ${benchmarks.subjectReviewRankLabel}
+- Photo count rank: ${benchmarks.subjectPhotoRankLabel}
 
 Benchmark confidence: ${benchmarks.benchmarkConfidence}%
 ${benchmarks.confidenceReasons.length ? 'Confidence notes:\n' + benchmarks.confidenceReasons.map(r => `- ${r}`).join('\n') : ''}

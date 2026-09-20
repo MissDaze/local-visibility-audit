@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import { pool } from './pool';
+import { clarifyBenchmarkRankings } from '../reports/rankings';
 
 export interface ReportRow {
   id: string;
@@ -37,7 +38,7 @@ export async function createRunningReport(
 export async function completeReport(id: string, markdown: string, debugJson: unknown): Promise<void> {
   await pool.query(
     `UPDATE reports SET status = 'complete', markdown = $2, debug_json = $3, completed_at = now() WHERE id = $1`,
-    [id, markdown, JSON.stringify(debugJson)],
+    [id, clarifyBenchmarkRankings(markdown), JSON.stringify(debugJson)],
   );
 }
 
@@ -62,5 +63,10 @@ export async function getReportForTenant(tenantId: string, reportId: string): Pr
     `SELECT * FROM reports WHERE id = $1 AND tenant_id = $2`,
     [reportId, tenantId],
   );
-  return rows[0] ?? null;
+  const report = rows[0];
+  if (!report) return null;
+  return {
+    ...report,
+    markdown: report.markdown === null ? null : clarifyBenchmarkRankings(report.markdown),
+  };
 }
