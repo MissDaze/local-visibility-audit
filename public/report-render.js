@@ -111,8 +111,96 @@ function styleSectionContent(h2El, className) {
   children.forEach(c => wrapper.appendChild(c));
 }
 
+function slugifyReportSection(text) {
+  return String(text || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function wrapInsightBlocks(section, cardClass) {
+  const headings = Array.from(section.querySelectorAll(':scope > h3'));
+  headings.forEach(h3 => {
+    if (h3.closest('.insight-card, .impl-card')) return;
+    const wrapper = document.createElement('div');
+    wrapper.className = 'insight-card ' + cardClass;
+    section.insertBefore(wrapper, h3);
+    wrapper.appendChild(h3);
+
+    let sib = wrapper.nextSibling;
+    while (sib && sib.nodeName !== 'H3') {
+      const next = sib.nextSibling;
+      wrapper.appendChild(sib);
+      sib = next;
+    }
+  });
+}
+
+function buildProfessionalReportLayout(el) {
+  if (el.querySelector('.report-cover')) return;
+
+  const firstH2 = el.querySelector('h2');
+  const cover = document.createElement('div');
+  cover.className = 'report-cover';
+
+  const eyebrow = document.createElement('div');
+  eyebrow.className = 'report-eyebrow';
+  eyebrow.textContent = 'Local Visibility Audit';
+  cover.appendChild(eyebrow);
+
+  const coverNodes = [];
+  let node = el.firstChild;
+  while (node && node !== firstH2) {
+    const next = node.nextSibling;
+    coverNodes.push(node);
+    node = next;
+  }
+
+  coverNodes.forEach(n => cover.appendChild(n));
+
+  const h1 = cover.querySelector('h1');
+  if (h1) {
+    const raw = h1.textContent || '';
+    const parts = raw.split(' — ');
+    if (parts.length > 1) {
+      const business = parts.shift();
+      const assessment = parts.join(' — ');
+      h1.textContent = business || '';
+      const span = document.createElement('span');
+      span.className = 'assessment-title';
+      span.textContent = assessment;
+      h1.appendChild(span);
+    }
+  }
+
+  el.insertBefore(cover, el.firstChild);
+
+  Array.from(el.querySelectorAll(':scope > h2')).forEach((h2, index) => {
+    const section = document.createElement('section');
+    const slug = slugifyReportSection(h2.textContent);
+    section.className = 'report-section section-' + slug;
+    section.dataset.section = slug;
+    section.dataset.sectionIndex = String(index + 1);
+
+    el.insertBefore(section, h2);
+    section.appendChild(h2);
+
+    let sib = section.nextSibling;
+    while (sib && sib.nodeName !== 'H2') {
+      const next = sib.nextSibling;
+      section.appendChild(sib);
+      sib = next;
+    }
+
+    if (slug === 'top-risks') wrapInsightBlocks(section, 'risk-card');
+    if (slug === 'top-opportunities') wrapInsightBlocks(section, 'opportunity-card');
+    if (slug === 'top-strengths') wrapInsightBlocks(section, 'strength-card');
+  });
+}
+
 function enhanceReport() {
   const el = document.getElementById('report-content');
+  if (!el) return;
 
   el.querySelectorAll('li').forEach(li => {
     if (li.textContent.trim().startsWith('✓')) {
@@ -139,6 +227,8 @@ function enhanceReport() {
       styleSectionContent(h2, 'success-content');
     }
   });
+
+  buildProfessionalReportLayout(el);
 }
 
 // Human-readable "data as of" stamp — directly answers the most common
@@ -220,7 +310,28 @@ function downloadReport(businessName, branding, writtenBy, generatedAt) {
   #report-content .check-item{color:#22c55e}
   #report-content .next-step-content{background:#6366f112;border:1px solid #6366f135;border-radius:8px;padding:16px 20px;margin-bottom:10px}
   #report-content .success-content{background:#22c55e0d;border:1px solid #22c55e30;border-radius:8px;padding:16px 20px;margin-bottom:10px}
-  @media print { body{background:#fff;color:#111;padding:0} .wrap{border:none;padding:0} #report-content h2{color:#111} }
+
+  #report-content{background:#f6f7fb;color:#15192b;border-radius:0 0 18px 18px;overflow:hidden}
+  .report-cover{position:relative;overflow:hidden;min-height:300px;padding:44px 54px 50px;color:#fff;background:radial-gradient(circle at 68% 15%,rgba(111,76,255,.28),transparent 34%),radial-gradient(circle at 6% 92%,rgba(26,199,184,.16),transparent 27%),linear-gradient(145deg,#0c1222 0%,#141a31 58%,#161c35 100%);border-bottom:1px solid #28304a}
+  .report-eyebrow{display:inline-flex;align-items:center;min-height:30px;padding:0 15px;margin-bottom:26px;border:1px solid rgba(124,100,255,.34);border-radius:999px;background:rgba(111,76,255,.11);color:#a99cff;font-size:10px;font-weight:800;letter-spacing:1.25px;text-transform:uppercase}
+  .report-cover h1{max-width:760px;margin:0;color:#fff;font-size:38px;line-height:1.08;letter-spacing:-1.35px;font-weight:850}
+  .report-cover h1 .assessment-title{display:block;color:#755cff}
+  .report-cover hr{display:none}
+  .report-section{max-width:860px;margin:0 auto;padding:38px 44px;border-bottom:1px solid #e8eaf2}
+  .report-section>h2{margin:0 0 18px;padding:0;border:0;color:#8992a9;font-size:10px;line-height:1.2;font-weight:850;letter-spacing:1.45px;text-transform:uppercase}
+  .report-section p,.report-section ul,.report-section ol{color:#4e566d}
+  .report-section strong{color:#171b2d}
+  .section-business-archetype{margin-top:-24px;max-width:820px;padding:28px 30px 30px;background:#fff;border:1px solid #e3e6ef;border-radius:18px;box-shadow:0 12px 30px rgba(28,35,58,.09)}
+  .section-business-archetype>p:first-of-type strong{display:block;margin:2px 0 8px;font-size:24px;line-height:1.15;letter-spacing:-.55px}
+  #report-content table{width:100%;margin:18px 0 8px;overflow:hidden;border-collapse:separate;border-spacing:0;background:#fff;border:1px solid #e1e4ed;border-radius:16px;color:#30364a;font-size:12px}
+  #report-content th{background:#eef0f6;color:#7d879f;border-bottom:1px solid #dfe3ec;padding:12px 14px;font-size:9px;letter-spacing:.95px;font-weight:850}
+  #report-content td{padding:13px 14px;border-bottom:1px solid #eceef4;color:#4a5166}
+  .insight-card{margin:14px 0;padding:20px 22px;background:#fff;border:1px solid #e1e4ed;border-radius:16px}
+  .risk-card{border-left:4px solid #ef6868}.opportunity-card{border-top:3px solid #755cff}.strength-card{border-left:4px solid #25c5b3}
+  .section-top-opportunities{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.section-top-opportunities>h2{grid-column:1/-1}.section-top-opportunities>.insight-card{margin:0}.section-top-opportunities>*:not(h2):not(.insight-card){grid-column:1/-1}
+  .section-quick-wins ul{list-style:none;padding:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.section-quick-wins li{margin:0;padding:18px;background:#fff;border:1px solid #e1e4ed;border-radius:14px}
+  @media print{body{background:#fff;color:#15192b;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}.wrap{border:none;padding:0;max-width:none}.report-cover{min-height:250mm;break-after:page;page-break-after:always;display:flex;flex-direction:column;justify-content:center}.report-section{break-inside:avoid;page-break-inside:avoid;padding:14mm 8mm}table,.insight-card,.impl-card{break-inside:avoid;page-break-inside:avoid}}
+
 </style>
 </head>
 <body>
