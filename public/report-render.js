@@ -111,124 +111,15 @@ function styleSectionContent(h2El, className) {
   children.forEach(c => wrapper.appendChild(c));
 }
 
-function slugifyReportSection(text) {
-  return String(text || '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-}
-
-function wrapInsightBlocks(section, cardClass) {
-  const headings = Array.from(section.querySelectorAll(':scope > h3'));
-  headings.forEach(h3 => {
-    if (h3.closest('.insight-card, .impl-card')) return;
-    const wrapper = document.createElement('div');
-    wrapper.className = 'insight-card ' + cardClass;
-    section.insertBefore(wrapper, h3);
-    wrapper.appendChild(h3);
-
-    let sib = wrapper.nextSibling;
-    while (sib && sib.nodeName !== 'H3') {
-      const next = sib.nextSibling;
-      wrapper.appendChild(sib);
-      sib = next;
-    }
-  });
-}
-
-function buildProfessionalReportLayout(el) {
-  if (el.querySelector('.report-cover')) return;
-
-  const firstH2 = el.querySelector('h2');
-  const cover = document.createElement('div');
-  cover.className = 'report-cover';
-
-  const eyebrow = document.createElement('div');
-  eyebrow.className = 'report-eyebrow';
-  eyebrow.textContent = 'Local Visibility Audit';
-  cover.appendChild(eyebrow);
-
-  const coverNodes = [];
-  let node = el.firstChild;
-  while (node && node !== firstH2) {
-    const next = node.nextSibling;
-    coverNodes.push(node);
-    node = next;
-  }
-
-  coverNodes.forEach(n => cover.appendChild(n));
-
-  const h1 = cover.querySelector('h1');
-  if (h1) {
-    const raw = h1.textContent || '';
-    const parts = raw.split(' — ');
-    if (parts.length > 1) {
-      const business = parts.shift();
-      const assessment = parts.join(' — ');
-      h1.textContent = business || '';
-      const span = document.createElement('span');
-      span.className = 'assessment-title';
-      span.textContent = assessment;
-      h1.appendChild(span);
-    }
-  }
-
-  el.insertBefore(cover, el.firstChild);
-
-  Array.from(el.querySelectorAll(':scope > h2')).forEach((h2, index) => {
-    const section = document.createElement('section');
-    const slug = slugifyReportSection(h2.textContent);
-    section.className = 'report-section section-' + slug;
-    section.dataset.section = slug;
-    section.dataset.sectionIndex = String(index + 1);
-
-    el.insertBefore(section, h2);
-    section.appendChild(h2);
-
-    let sib = section.nextSibling;
-    while (sib && sib.nodeName !== 'H2') {
-      const next = sib.nextSibling;
-      section.appendChild(sib);
-      sib = next;
-    }
-
-    if (slug === 'top-risks') wrapInsightBlocks(section, 'risk-card');
-    if (slug === 'top-opportunities') wrapInsightBlocks(section, 'opportunity-card');
-    if (slug === 'top-strengths') wrapInsightBlocks(section, 'strength-card');
-  });
-}
-
 function enhanceReport() {
+  // A queued streaming paint must not overwrite the completed presentation.
+  if (typeof renderTimer !== 'undefined' && renderTimer) {
+    clearTimeout(renderTimer);
+    renderTimer = null;
+  }
   const el = document.getElementById('report-content');
-  if (!el) return;
-
-  el.querySelectorAll('li').forEach(li => {
-    if (li.textContent.trim().startsWith('✓')) {
-      li.classList.add('check-item');
-      const ul = li.closest('ul');
-      if (ul) ul.classList.add('check-list');
-    }
-  });
-
-  el.querySelectorAll('h3').forEach(h3 => {
-    const text = h3.textContent || '';
-    if (/option\s*1/i.test(text)) {
-      wrapToNextBlock(h3, ['H2', 'H3', 'HR'], 'impl-card impl-diy');
-    } else if (/option\s*2/i.test(text)) {
-      wrapToNextBlock(h3, ['H2', 'H3', 'HR'], 'impl-card impl-dfy');
-    }
-  });
-
-  el.querySelectorAll('h2').forEach(h2 => {
-    const text = h2.textContent || '';
-    if (/next\s*step/i.test(text)) {
-      styleSectionContent(h2, 'next-step-content');
-    } else if (/what\s*success/i.test(text)) {
-      styleSectionContent(h2, 'success-content');
-    }
-  });
-
-  buildProfessionalReportLayout(el);
+  if (!el || el.querySelector('[data-report-layout]')) return;
+  el.innerHTML = buildReportLayout(el.innerHTML);
 }
 
 // Human-readable "data as of" stamp — directly answers the most common
@@ -244,106 +135,31 @@ function formatGeneratedAt(dateInput) {
 // generation timestamp) at the top of the report card.
 function renderLetterhead(branding, writtenBy, generatedAt) {
   const container = document.getElementById('report-card');
-  container.querySelectorAll('.report-letterhead, .report-written-by, .report-generated-at').forEach(el => el.remove());
-
-  const content = document.getElementById('report-content');
-  const parts = [];
-
-  if (branding && (branding.logoDataUri || branding.companyName)) {
-    parts.push(`<div class="report-letterhead">
-      ${branding.logoDataUri ? `<img src="${branding.logoDataUri}" alt="Logo" />` : ''}
-      ${branding.companyName ? `<div class="company-name">${branding.companyName}</div>` : ''}
-    </div>`);
-  }
-  if (writtenBy) {
-    parts.push(`<div class="report-written-by">Prepared by ${writtenBy}</div>`);
-  }
-  parts.push(`<div class="report-generated-at">Report generated: ${formatGeneratedAt(generatedAt)}</div>`);
-
-  const wrap = document.createElement('div');
-  wrap.innerHTML = parts.join('');
-  while (wrap.firstChild) content.parentNode.insertBefore(wrap.firstChild, content);
+  if (!container) return;
+  // Remove only legacy letterhead nodes, never agency settings or report copy.
+  Array.from(container.children).filter(el => el.matches('.report-letterhead, .report-written-by, .report-generated-at')).forEach(el => el.remove());
+  const slot = container.querySelector('.report-meta-slot');
+  if (slot) slot.innerHTML = reportLetterheadHtml(branding, writtenBy, generatedAt);
 }
 
 // Bundles the rendered report (with letterhead + written-by) into a
 // standalone HTML file so it can be emailed or handed to a client directly —
 // no dependency on this page/server, opens and prints cleanly on its own.
 function downloadReport(businessName, branding, writtenBy, generatedAt) {
-  const reportHtml = document.getElementById('report-content').innerHTML;
+  const content = document.getElementById('report-content').cloneNode(true);
+  content.querySelectorAll('.report-meta-slot').forEach(slot => { slot.innerHTML = ''; });
+  // Embed the same local stylesheet, so the file remains usable offline.
+  const sheet = Array.from(document.styleSheets).find(s => s.href && /\/report\.css(?:[?#]|$)/.test(s.href));
+  let css;
+  try {
+    if (!sheet) throw new Error('Report stylesheet is not loaded.');
+    css = Array.from(sheet.cssRules, rule => rule.cssText).join('\n');
+  } catch {
+    alert('The report styling has not loaded. Reload the page and try downloading again.');
+    return;
+  }
+  const doc = buildReportDocument(businessName, content.innerHTML, branding, writtenBy, generatedAt, css);
   const dateStr = new Date().toISOString().slice(0, 10);
-  const title = (branding && branding.companyName) || 'Business Growth Assessment';
-
-  const letterheadHtml = (branding && (branding.logoDataUri || branding.companyName))
-    ? `<div style="display:flex;align-items:center;gap:16px;padding-bottom:20px;margin-bottom:20px;border-bottom:1px solid #2e3347;">
-        ${branding.logoDataUri ? `<img src="${branding.logoDataUri}" style="max-height:64px;max-width:220px;object-fit:contain" />` : ''}
-        ${branding.companyName ? `<div style="font-size:16px;font-weight:800;">${branding.companyName}</div>` : ''}
-      </div>`
-    : '';
-  const writtenByHtml = writtenBy ? `<div style="font-size:12px;color:#8892aa;">Prepared by ${writtenBy}</div>` : '';
-  const generatedAtHtml = `<div style="font-size:12px;color:#8892aa;margin-bottom:24px;">Report generated: ${formatGeneratedAt(generatedAt)}</div>`;
-
-  const doc = `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8" />
-<title>${businessName} — ${title}</title>
-<style>
-  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-  body{background:#0f1117;color:#e2e8f0;font-family:'Inter',system-ui,-apple-system,sans-serif;line-height:1.8;padding:48px 24px}
-  .wrap{max-width:720px;margin:0 auto;background:#1a1d27;border:1px solid #2e3347;border-radius:10px;padding:36px}
-  #report-content h1{font-size:22px;font-weight:800;letter-spacing:-0.4px;margin-bottom:4px}
-  #report-content h2{font-size:17px;font-weight:700;color:#6366f1;margin-top:36px;margin-bottom:14px;border-bottom:1px solid #2e3347;padding-bottom:8px}
-  #report-content h3{font-size:15px;font-weight:700;margin-top:22px;margin-bottom:8px}
-  #report-content p{margin-bottom:12px}
-  #report-content ul,#report-content ol{padding-left:20px;margin-bottom:12px}
-  #report-content li{margin-bottom:6px}
-  #report-content table{width:100%;border-collapse:collapse;margin-bottom:20px;font-size:14px}
-  #report-content th{background:#222534;padding:9px 14px;text-align:left;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#8892aa;border-bottom:1px solid #2e3347}
-  #report-content td{padding:10px 14px;border-bottom:1px solid #2e3347}
-  #report-content strong{font-weight:700;color:#fff}
-  #report-content em{color:#8892aa}
-  #report-content hr{border:none;border-top:1px solid #2e3347;margin:28px 0}
-  #report-content .impl-card{background:#222534;border:1px solid #2e3347;border-radius:8px;padding:20px 24px;margin:12px 0 20px}
-  #report-content .impl-diy{border-left:3px solid #6366f1}
-  #report-content .impl-dfy{border-left:3px solid #22c55e}
-  #report-content .check-list{list-style:none;padding-left:0}
-  #report-content .check-item{color:#22c55e}
-  #report-content .next-step-content{background:#6366f112;border:1px solid #6366f135;border-radius:8px;padding:16px 20px;margin-bottom:10px}
-  #report-content .success-content{background:#22c55e0d;border:1px solid #22c55e30;border-radius:8px;padding:16px 20px;margin-bottom:10px}
-
-  #report-content{background:#f6f7fb;color:#15192b;border-radius:0 0 18px 18px;overflow:hidden}
-  .report-cover{position:relative;overflow:hidden;min-height:300px;padding:44px 54px 50px;color:#fff;background:radial-gradient(circle at 68% 15%,rgba(111,76,255,.28),transparent 34%),radial-gradient(circle at 6% 92%,rgba(26,199,184,.16),transparent 27%),linear-gradient(145deg,#0c1222 0%,#141a31 58%,#161c35 100%);border-bottom:1px solid #28304a}
-  .report-eyebrow{display:inline-flex;align-items:center;min-height:30px;padding:0 15px;margin-bottom:26px;border:1px solid rgba(124,100,255,.34);border-radius:999px;background:rgba(111,76,255,.11);color:#a99cff;font-size:10px;font-weight:800;letter-spacing:1.25px;text-transform:uppercase}
-  .report-cover h1{max-width:760px;margin:0;color:#fff;font-size:38px;line-height:1.08;letter-spacing:-1.35px;font-weight:850}
-  .report-cover h1 .assessment-title{display:block;color:#755cff}
-  .report-cover hr{display:none}
-  .report-section{max-width:860px;margin:0 auto;padding:38px 44px;border-bottom:1px solid #e8eaf2}
-  .report-section>h2{margin:0 0 18px;padding:0;border:0;color:#8992a9;font-size:10px;line-height:1.2;font-weight:850;letter-spacing:1.45px;text-transform:uppercase}
-  .report-section p,.report-section ul,.report-section ol{color:#4e566d}
-  .report-section strong{color:#171b2d}
-  .section-business-archetype{margin-top:-24px;max-width:820px;padding:28px 30px 30px;background:#fff;border:1px solid #e3e6ef;border-radius:18px;box-shadow:0 12px 30px rgba(28,35,58,.09)}
-  .section-business-archetype>p:first-of-type strong{display:block;margin:2px 0 8px;font-size:24px;line-height:1.15;letter-spacing:-.55px}
-  #report-content table{width:100%;margin:18px 0 8px;overflow:hidden;border-collapse:separate;border-spacing:0;background:#fff;border:1px solid #e1e4ed;border-radius:16px;color:#30364a;font-size:12px}
-  #report-content th{background:#eef0f6;color:#7d879f;border-bottom:1px solid #dfe3ec;padding:12px 14px;font-size:9px;letter-spacing:.95px;font-weight:850}
-  #report-content td{padding:13px 14px;border-bottom:1px solid #eceef4;color:#4a5166}
-  .insight-card{margin:14px 0;padding:20px 22px;background:#fff;border:1px solid #e1e4ed;border-radius:16px}
-  .risk-card{border-left:4px solid #ef6868}.opportunity-card{border-top:3px solid #755cff}.strength-card{border-left:4px solid #25c5b3}
-  .section-top-opportunities{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.section-top-opportunities>h2{grid-column:1/-1}.section-top-opportunities>.insight-card{margin:0}.section-top-opportunities>*:not(h2):not(.insight-card){grid-column:1/-1}
-  .section-quick-wins ul{list-style:none;padding:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.section-quick-wins li{margin:0;padding:18px;background:#fff;border:1px solid #e1e4ed;border-radius:14px}
-  @media print{body{background:#fff;color:#15192b;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}.wrap{border:none;padding:0;max-width:none}.report-cover{min-height:250mm;break-after:page;page-break-after:always;display:flex;flex-direction:column;justify-content:center}.report-section{break-inside:avoid;page-break-inside:avoid;padding:14mm 8mm}table,.insight-card,.impl-card{break-inside:avoid;page-break-inside:avoid}}
-
-</style>
-</head>
-<body>
-<div class="wrap">
-${letterheadHtml}
-${writtenByHtml}
-${generatedAtHtml}
-<div id="report-content">${reportHtml}</div>
-</div>
-</body>
-</html>`;
-
   const blob = new Blob([doc], { type: 'text/html' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -378,4 +194,157 @@ async function emailReport(reportId) {
   } catch (e) {
     alert(e.message);
   }
+}
+
+// Presentation only: wrap the existing rendered Markdown, never regenerate
+// audit copy, scores or rankings. Also used server-side for HTML attachments.
+function reportEscape(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[ch]));
+}
+
+function reportText(html) {
+  return String(html).replace(/<\/(?:p|div|section|h[1-6]|li|tr)>/gi, ' ').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ')
+    .replace(/&#(\d+);/g, (entity, n) => Number(n) <= 0x10ffff ? String.fromCodePoint(Number(n)) : entity)
+    .replace(/&#x([0-9a-f]+);/gi, (entity, n) => parseInt(n, 16) <= 0x10ffff ? String.fromCodePoint(parseInt(n, 16)) : entity)
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"').replace(/&#39;/g, "'").trim();
+}
+
+function reportSections(html, level) {
+  const headings = Array.from(html.matchAll(new RegExp(`<h${level}\\b[^>]*>[\\s\\S]*?<\\/h${level}>`, 'gi')));
+  return {
+    intro: html.slice(0, headings.length ? headings[0].index : html.length),
+    sections: headings.map((match, index) => ({
+      heading: match[0],
+      title: reportText(match[0]),
+      body: html.slice(match.index + match[0].length, index + 1 < headings.length ? headings[index + 1].index : html.length)
+    }))
+  };
+}
+
+function reportTableRows(html) {
+  const table = html.match(/<table\b[^>]*>[\s\S]*?<\/table>/i);
+  if (!table) return [];
+  return Array.from(table[0].matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi))
+    .filter(row => !/<th\b/i.test(row[1]))
+    .map(row => Array.from(row[1].matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gi), cell => reportText(cell[1])));
+}
+
+function reportScore(value) {
+  const match = String(value || '').match(/^(\d+(?:\.\d+)?)\s*\/\s*10$/);
+  return match && Number(match[1]) <= 10 ? Number(match[1]) : null;
+}
+
+function reportSummary(sections) {
+  const rankings = sections.find(s => /^local market rankings$/i.test(s.title));
+  const scorecard = sections.find(s => /^scorecard$/i.test(s.title));
+  const confidence = sections.find(s => /^confidence score$/i.test(s.title));
+  const metrics = reportTableRows(rankings?.body || '').filter(row =>
+    row.length >= 2 && /^(star rating|review count|photo count)$/i.test(row[0]));
+  const overall = reportTableRows(scorecard?.body || '').find(row => /^overall$/i.test(row[0]));
+  const score = overall ? reportScore(overall[1]) : null;
+  const metricHtml = metrics.length ? `<div class="report-metrics" data-report-summary="true">${metrics.map(row =>
+    `<div class="report-metric"><span class="report-label">${reportEscape(row[0])}</span><strong>${reportEscape(row[1])}</strong>${row[2] ? `<small>Market average: ${reportEscape(row[2])}</small>` : ''}</div>`
+  ).join('')}</div>` : '';
+  const conf = reportText(confidence?.body || '').match(/Data Confidence\s*:\s*(High|Medium|Low)\b/i);
+  const scoreHtml = score !== null ? `<aside class="report-overall" data-report-summary="true" aria-label="Overall score ${score} out of 10">
+    <div class="report-ring"><svg viewBox="0 0 120 120" aria-hidden="true"><circle class="ring-track" cx="60" cy="60" r="52"/><circle class="ring-value" cx="60" cy="60" r="52" pathLength="100" stroke-dasharray="${score * 10} 100"/></svg><div><strong>${score}</strong><span>Overall / 10</span></div></div>
+    ${overall[2] ? `<p>Market average: <strong>${reportEscape(overall[2])}</strong></p>` : ''}
+    ${conf ? `<small>Data confidence: ${reportEscape(conf[1])}</small>` : ''}
+  </aside>` : '';
+  return { metricHtml, scoreHtml };
+}
+
+function reportSectionStyle(title) {
+  if (/^business archetype$/i.test(title)) return 'archetype';
+  if (/^market position$/i.test(title)) return 'position';
+  if (/^local market rankings$/i.test(title)) return 'rankings';
+  if (/^confidence score$/i.test(title)) return 'confidence';
+  if (/^scorecard$/i.test(title)) return 'scorecard';
+  if (/^executive summary$/i.test(title)) return 'executive';
+  if (/^top risks$/i.test(title)) return 'risks';
+  if (/^top opportunities$/i.test(title)) return 'opportunities';
+  if (/^top strengths$/i.test(title)) return 'strengths';
+  if (/^quick wins$/i.test(title)) return 'wins';
+  if (/^how to fix/i.test(title)) return 'implementation';
+  if (/^next step$/i.test(title)) return 'next';
+  if (/^what success/i.test(title)) return 'success';
+  return 'findings';
+}
+
+function decorateReportSection(section) {
+  const kind = reportSectionStyle(section.title);
+  let body = section.body;
+  const groups = reportSections(body, 3);
+  if (groups.sections.length && ['risks', 'opportunities', 'strengths', 'implementation', 'findings'].includes(kind)) {
+    body = groups.intro + `<div class="report-items">${groups.sections.map((item, i) =>
+      `<div class="report-item" data-item-number="${String(i + 1).padStart(2, '0')}">${item.heading}${item.body}</div>`
+    ).join('')}</div>`;
+  }
+  // Original score labels and every table cell remain intact; bars are decorative.
+  if (kind === 'scorecard') {
+    body = body.replace(/<td\b([^>]*)>([\s\S]*?)<\/td>/gi, (cell, attrs, value) => {
+      const score = reportScore(reportText(value));
+      return score === null ? cell : `<td${attrs}>${value}<span class="report-meter" aria-hidden="true"><span style="width:${score * 10}%"></span></span></td>`;
+    });
+  }
+  body = body.replace(/<table\b[\s\S]*?<\/table>/gi, table => `<div class="report-table-wrap">${table}</div>`);
+  return `<section class="report-section report-section-${kind}">${section.heading}<div class="report-section-body">${body}</div></section>`;
+}
+
+function buildReportLayout(html) {
+  html = String(html || '');
+  if (/data-report-layout="reference-v1"/.test(html)) return html;
+  const parsed = reportSections(html, 2);
+  const hasCover = /<h1\b/i.test(parsed.intro);
+  const first = parsed.sections[0];
+  const isArchetype = hasCover && first && /^business archetype$/i.test(first.title);
+  const hasCoverPosition = isArchetype && parsed.sections[1] && /^market position$/i.test(parsed.sections[1].title);
+  const summary = reportSummary(parsed.sections);
+  let intro = parsed.intro;
+  // Keep the exact title text; only give its existing subtitle a separate line.
+  intro = intro.replace(/([—–-]|&mdash;|&ndash;)\s*Business Growth Assessment/gi,
+    '<span class="report-subtitle">$&</span>');
+  let cover = '';
+  if (hasCover) {
+    cover = `<div class="report-cover"><div class="report-meta-slot"></div><div class="report-eyebrow" data-report-summary="true">Local Visibility Audit</div>${intro}`;
+    if (isArchetype) {
+      cover += `<div class="report-cover-grid${summary.scoreHtml ? '' : ' report-cover-single'}"><div class="report-diagnosis">${first.heading}${first.body}${summary.metricHtml}</div>${summary.scoreHtml}</div>`;
+    } else {
+      cover += summary.metricHtml + summary.scoreHtml;
+    }
+    if (hasCoverPosition) {
+      const position = parsed.sections[1];
+      cover += `<section class="report-cover-position">${position.heading}${position.body}</section>`;
+    }
+    cover += '</div>';
+  } else {
+    cover = `<div class="report-plain-intro"><div class="report-meta-slot"></div>${intro}</div>`;
+  }
+  const sections = parsed.sections.slice(isArchetype ? (hasCoverPosition ? 2 : 1) : 0);
+  return `<div class="report-layout" data-report-layout="reference-v1">${cover}<div class="report-body">${sections.map(decorateReportSection).join('')}</div></div>`;
+}
+
+function reportLetterheadHtml(branding, writtenBy, generatedAt) {
+  const logo = branding?.logoDataUri;
+  const company = branding?.companyName;
+  return `<div class="report-meta"><div class="report-letterhead">${logo ? `<img src="${reportEscape(logo)}" alt="Agency logo" />` : ''}${company ? `<div class="company-name">${reportEscape(company)}</div>` : ''}</div><div class="report-meta-detail">${writtenBy ? `<div class="report-written-by">Prepared by ${reportEscape(writtenBy)}</div>` : ''}<div class="report-generated-at">Report generated: ${reportEscape(formatGeneratedAt(generatedAt))}</div></div></div>`;
+}
+
+function buildReportDocument(businessName, html, branding, writtenBy, generatedAt, css) {
+  const title = branding?.companyName || 'Business Growth Assessment';
+  const layout = buildReportLayout(html).replace('<div class="report-meta-slot"></div>',
+    () => `<div class="report-meta-slot">${reportLetterheadHtml(branding, writtenBy, generatedAt)}</div>`);
+  return `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>${reportEscape(businessName)} — ${reportEscape(title)}</title>
+<style>${String(css).replace(/<\/style/gi, '<\\/style')}</style></head>
+<body class="report-document"><div class="report-card visible" id="report-card"><div id="report-content">${layout}</div></div></body></html>`;
+}
+
+// Only the dependency-free presentation helpers are exposed to the email renderer.
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { buildReportLayout, buildReportDocument, reportLetterheadHtml };
 }
