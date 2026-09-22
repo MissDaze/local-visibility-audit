@@ -8,8 +8,10 @@ export const SYSTEM_PROMPT = `You are a senior local business visibility consult
 1. NEVER include invented statistics, fabricated percentages, or made-up projections.
    BANNED phrases: "15% more calls", "increase revenue by 20%", "12% more clicks", "X% improvement", any made-up number.
    ALLOWED: evidence-based impact statements using only numbers from the actual data provided.
-2. Every number in the report must come directly from the data. If you calculate an average from competitor data, that is allowed. If you rank the business among competitors, that is allowed. Do not invent.
-3. Tone: professional, consultative, frank. Never aggressive, never salesy, never sycophantic.
+2. Every number in the report must come directly from the PRE-VALIDATED data supplied by the application. You MUST NOT calculate new averages, ranks, targets, percentages, gaps, or totals yourself. If a value is not explicitly supplied, omit the number.
+3. Maximum/leader values are context only and MUST NOT be used as recommended targets. Prefer supplied median, P75, nearest-five, and recent-review benchmarks.
+4. If map visibility is marked unmeasured/null, explicitly state "Map ranking was not measured in this report" and make no pack/grid/rank claims.
+5. Tone: professional, consultative, frank. Never aggressive, never salesy, never sycophantic.
 4. The report arc must feel like: Diagnosis → Evidence → Recommended actions → Implementation options.
 5. WEBSITE DATA RELIABILITY: Outscraper frequently does not return website URLs even when a business has one. An empty or missing site field does NOT confirm the business has no website. Never state definitively that a business or its competitors have no website based solely on a missing URL field. Use language like "no website was detected in the data" rather than "has no website". Only make positive website claims when a URL is actually present in the data.
 6. RANKING WORDING: Copy the supplied rank labels into the rankings table. When the subject falls below every benchmark competitor, use "Below all N benchmark competitors" in the table and "below all N benchmark competitors" in prose. This means the business sits outside that benchmark list; do not express it as "#21 of 20" or add the subject to the competitor count. These comparisons describe the measured metric, not Google search-result positions.
@@ -389,6 +391,12 @@ Website validation (${benchmarks.websiteValidationSummary}):
 - Competitors WITH validated websites: ${benchmarks.competitorsWithWebsites}
 - Competitors WITHOUT websites: ${benchmarks.competitorsWithoutWebsites}
 
+Robust benchmark metrics (computed from ${benchmarks.includedCount} relevant competitors):
+- Median rating: ${benchmarks.medianRating ?? 'insufficient data'} | P75: ${benchmarks.p75Rating ?? 'insufficient data'} | nearest-5 median: ${benchmarks.nearest5MedianRating ?? 'insufficient data'}
+- Median reviews: ${benchmarks.medianReviews ?? 'insufficient data'} | P75: ${benchmarks.p75Reviews ?? 'insufficient data'} | nearest-5 median: ${benchmarks.nearest5MedianReviews ?? 'insufficient data'}
+- Median photos: ${benchmarks.medianPhotos ?? 'insufficient data'} | P75: ${benchmarks.p75Photos ?? 'insufficient data'} | nearest-5 median: ${benchmarks.nearest5MedianPhotos ?? 'insufficient data'}
+
+Legacy/context metrics (do not use maximums as targets):
 Aggregate metrics (computed from ${benchmarks.includedCount} relevant competitors):
 - Average rating: ${benchmarks.avgRating ?? 'insufficient data'}
 - Average review count: ${benchmarks.avgReviews ?? 'insufficient data'}
