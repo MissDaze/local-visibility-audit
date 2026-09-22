@@ -2,10 +2,9 @@
 // its last entry means the subject falls below every business in that list.
 export function formatBenchmarkRank(rank: number | null, competitors: number): string {
   if (rank === null || competitors === 0) return 'N/A';
-  if (rank === competitors + 1) {
-    return `Below all ${competitors} benchmark competitor${competitors === 1 ? '' : 's'}`;
-  }
-  return `#${rank} of ${competitors}`;
+  const population = competitors + 1;
+  if (rank < 1 || rank > population) return 'N/A';
+  return `#${rank} of ${population}`;
 }
 
 // Apply the same wording to existing saved reports without changing their data
