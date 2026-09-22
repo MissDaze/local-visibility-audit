@@ -65,6 +65,7 @@ authRouter.get('/me', async (req: Request, res: Response) => {
     res.status(401).json({ error: 'Not logged in.' });
     return;
   }
+  const admins = (process.env.ADMIN_EMAILS || '').split(',').map(v => v.trim().toLowerCase());
   res.json({
     id: tenant.id,
     email: tenant.email,
@@ -72,5 +73,6 @@ authRouter.get('/me', async (req: Request, res: Response) => {
     planTier: tenant.plan_tier,
     trialEndsAt: tenant.trial_ends_at,
     writtenBy: tenant.brand_written_by,
+    isAdmin: admins.includes(tenant.email.toLowerCase()),
   });
 });
