@@ -95,7 +95,7 @@ export async function runAudit(
 
   console.log(`[outscraper] submitting competitor search: "${competitorQuery}"`);
   const [rawCandidates, subjectWebsiteAudit] = await Promise.all([
-    outscraperSearch(competitorQuery, 60, 120000, competitorCoordinates, 'AU')
+    outscraperSearch(competitorQuery, 60, 120000, competitorCoordinates, subjectRecord?.country_code)
       .then(r => { console.log(`[outscraper] competitor search returned ${r.length} result(s)`); return r; })
       .catch((e: unknown) => {
         console.error(`[outscraper] competitor search failed for "${competitorQuery}":`, e instanceof Error ? e.message : e);
