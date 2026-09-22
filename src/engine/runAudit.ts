@@ -104,7 +104,7 @@ export async function runAudit(
     (async (): Promise<SubjectWebsiteAudit | null> => {
       const knownUrl = resolveUrl(subjectRecord ?? {} as OutscraperRecord);
       const url = knownUrl || (subjectRecord
-        ? await searchForWebsite(businessName, city)
+        ? await searchForWebsite(businessName, city, subjectRecord.full_address, subjectRecord.phone)
         : null);
 
       if (!url) {
