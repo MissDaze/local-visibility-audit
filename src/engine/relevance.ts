@@ -410,9 +410,6 @@ export function scoreAndFilterCompetitors(
     if (km !== null && km > 25) {
       return { ...c, included: false, exclusionReason: 'Outside local market radius (' + Math.round(km) + ' km)' };
     }
-    if (subject.country_code && c.record.country_code && c.record.country_code.toUpperCase() !== subject.country_code.toUpperCase()) {
-      return { ...c, included: false, exclusionReason: 'Different country from subject business' };
-    }
     if (c.record.business_status === 'CLOSED_TEMPORARILY') {
       return { ...c, included: false, exclusionReason: 'Temporarily closed' };
     }
