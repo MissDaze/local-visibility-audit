@@ -381,7 +381,23 @@ export function scoreAndFilterCompetitors(
   threshold = 45,
 ): ScoredCompetitor[] {
   const seen = new Set<string>();
-  const scored = buildScoredCompetitors(subject, candidates, threshold).map(c => {
+  const scored: ScoredCompetitor[] = candidates.map((record: OutscraperRecord): ScoredCompetitor => {
+    const s = scoreRelevance(subject, record);
+    let exclusionReason: string | null = null;
+    if (record.business_status === 'CLOSED_PERMANENTLY') exclusionReason = 'Permanently closed';
+    else if (!record.name || !record.name.trim()) exclusionReason = 'Missing business name';
+    else if (!s.exactCategoryMatch && !s.sameTypeGroup && s.score < threshold) exclusionReason = 'Low relevance';
+    return {
+      record,
+      relevanceScore: s.score,
+      included: exclusionReason === null,
+      exclusionReason,
+      hasValidWebsite: isValidWebsite(record),
+      categoryMatch: s.categoryMatch,
+      typeGroup: s.typeGroup,
+      scoreBreakdown: s.breakdown,
+    };
+  }).map((c: ScoredCompetitor): ScoredCompetitor => {
     if (!c.included) return c;
     if (c.record.business_status === 'CLOSED_TEMPORARILY') {
       return { ...c, included: false, exclusionReason: 'Temporarily closed' };
@@ -395,9 +411,9 @@ export function scoreAndFilterCompetitors(
   // Never weaken the relevance threshold merely to manufacture a larger set.
   // Keep only the strongest defensible competitors; a sparse set lowers
   // benchmark confidence downstream instead.
-  const included = scored.filter(c => c.included).sort((a,b) => b.relevanceScore - a.relevanceScore);
+  const included = scored.filter((c: ScoredCompetitor) => c.included).sort((a: ScoredCompetitor,b: ScoredCompetitor) => b.relevanceScore - a.relevanceScore);
   const keep = new Set(included.slice(0, MAX_COMPETITORS));
-  return scored.map(c => c.included && !keep.has(c)
+  return scored.map((c: ScoredCompetitor): ScoredCompetitor => c.included && !keep.has(c)
     ? { ...c, included: false, exclusionReason: `Outside top ${MAX_COMPETITORS} relevant competitors` }
     : c);
 }
