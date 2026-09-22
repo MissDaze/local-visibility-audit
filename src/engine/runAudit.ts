@@ -12,6 +12,7 @@ import {
   CompetitorWebsiteCheck,
 } from './web-audit';
 import { outscraperSearch } from './outscraper';
+import { buildCanonicalAnalysis, validateCanonicalAnalysis } from './analysis';
 
 const openrouter = new OpenAI({
   apiKey: process.env.OPENROUTER_API_KEY || '',
@@ -92,7 +93,7 @@ export async function runAudit(
 
   console.log(`[outscraper] submitting competitor search: "${competitorQuery}"`);
   const [rawCandidates, subjectWebsiteAudit] = await Promise.all([
-    outscraperSearch(competitorQuery, 20)
+    outscraperSearch(competitorQuery, 60)
       .then(r => { console.log(`[outscraper] competitor search returned ${r.length} result(s)`); return r; })
       .catch((e: unknown) => {
         console.error(`[outscraper] competitor search failed for "${competitorQuery}":`, e instanceof Error ? e.message : e);
@@ -189,8 +190,13 @@ export async function runAudit(
     }
   }
 
-  // ── Step 7: Debug payload ─────────────────────────────────────────────────
+  // ── Step 7: Canonical analysis + QA ───────────────────────────────────────
+  const analysis = buildCanonicalAnalysis(subjectRecord, scoredCompetitors, benchmarkData);
+  validateCanonicalAnalysis(analysis);
+
+  // ── Step 8: Debug payload ─────────────────────────────────────────────────
   const debug = {
+    analysis,
     subject: subjectRecord ? {
       name: subjectRecord.name,
       type: subjectRecord.type,
@@ -245,7 +251,7 @@ export async function runAudit(
 
   onEvent({ status: `Generating your report…` });
 
-  // ── Step 8: Build prompt and stream LLM ──────────────────────────────────
+  // ── Step 9: Build prompt and stream LLM ──────────────────────────────────
   const includedRecords = includedCompetitors.map(c => c.record);
 
   const userMessage = buildUserMessage(
