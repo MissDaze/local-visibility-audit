@@ -64,7 +64,7 @@ const UA =
   'AppleWebKit/537.36 (KHTML, like Gecko) ' +
   'Chrome/124.0.0.0 Safari/537.36';
 
-async function fetchHtml(url: string, timeoutMs = 7000): Promise<{ html: string; loadTimeMs: number }> {
+async function fetchHtml(url: string, timeoutMs = 10000): Promise<{ html: string; loadTimeMs: number }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const start = Date.now();
@@ -98,27 +98,43 @@ async function fetchHtml(url: string, timeoutMs = 7000): Promise<{ html: string;
 export async function searchForWebsite(
   businessName: string,
   city: string,
+  address?: string,
+  phone?: string,
 ): Promise<string | null> {
-  const query = `"${businessName}" "${city}" website`;
-  const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+  const queries = [
+    `"${businessName}" "${city}"`,
+    address ? `"${businessName}" "${address}"` : '',
+    phone ? `"${businessName}" "${phone}"` : '',
+    `${businessName} ${city} official website`,
+  ].filter(Boolean);
+  const blocked = /facebook\.com|instagram\.com|google\.|yelp\.|tripadvisor\.|yellowpages|whitepages|linkedin\.|ubereats\.|doordash\.|menulog\.|restaurantguru\.|whereis\.|mapquest\./i;
+  const nameTokens = normaliseForMatch(businessName).split(' ').filter(x => x.length > 2);
 
-  try {
-    const { html } = await fetchHtml(searchUrl, 5000);
-
-    // DuckDuckGo embeds destination URLs as uddg= parameters
-    const matches = [...html.matchAll(/uddg=(https?[^&"'\s]+)/g)];
-    for (const m of matches) {
-      const candidate = decodeURIComponent(m[1]);
-      // Skip social media, map sites, review aggregators
-      if (/facebook\.com|google\.com\/maps|yelp\.com|tripadvisor\.com|yellowpages|white-?pages|instagram|twitter|linkedin|duckduckgo\.com/i.test(candidate)) {
-        continue;
+  for (const query of queries) {
+    try {
+      const { html } = await fetchHtml(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, 8000);
+      const matches = [...html.matchAll(/uddg=(https?[^&"'\s]+)/g)];
+      for (const m of matches) {
+        const candidate = decodeURIComponent(m[1]);
+        if (blocked.test(candidate)) continue;
+        try {
+          const fetched = await fetchHtml(candidate, 10000);
+          const pageText = normaliseForMatch(fetched.html.replace(/<[^>]+>/g, ' '));
+          const hostText = normaliseForMatch(new URL(candidate).hostname);
+          const nameHits = nameTokens.filter(t => pageText.includes(t) || hostText.includes(t)).length;
+          const addressHit = address ? pageText.includes(normaliseForMatch(address).split(' ').slice(0,3).join(' ')) : false;
+          const phoneDigits = (phone || '').replace(/\D/g,'').slice(-8);
+          const phoneHit = phoneDigits.length >= 8 && fetched.html.replace(/\D/g,'').includes(phoneDigits);
+          if (nameHits >= Math.max(1, Math.ceil(nameTokens.length / 2)) || addressHit || phoneHit) return candidate;
+        } catch { /* candidate did not load; continue searching */ }
       }
-      return candidate;
-    }
-    return null;
-  } catch {
-    return null;
+    } catch { /* search provider failed; try next query */ }
   }
+  return null;
+}
+
+function normaliseForMatch(value: string): string {
+  return (value || '').toLowerCase().replace(/[^a-z0-9]+/g,' ').replace(/\s+/g,' ').trim();
 }
 
 // ---------------------------------------------------------------------------
