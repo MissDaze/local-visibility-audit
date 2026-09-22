@@ -108,6 +108,15 @@
       const signupData = await signupRes.json();
       if (!signupRes.ok) throw new Error(signupData.error || 'Signup failed.');
 
+      // Preview deployments have billing disabled: account creation itself is
+      // sufficient and the new session is already established by /auth/signup.
+      const pricingRes = await fetch('/api/billing/pricing');
+      const pricing = await pricingRes.json();
+      if (pricing.billingEnabled === false) {
+        window.location.href = '/dashboard.html';
+        return;
+      }
+
       const tierId = document.querySelector('input[name="plan"]:checked').value;
       const checkoutRes = await fetch('/api/billing/checkout', {
         method: 'POST',
