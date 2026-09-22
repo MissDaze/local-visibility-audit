@@ -43,6 +43,7 @@ export interface OutscraperRecord {
   about?: string;                     // additional attributes JSON
   posts?: number | string;            // recent Google posts count
   owner_id?: string;
+  place_id?: string;
   verified?: boolean | string;
 }
 
