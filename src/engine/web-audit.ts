@@ -101,6 +101,23 @@ export async function searchForWebsite(
   address?: string,
   phone?: string,
 ): Promise<string | null> {
+  const directDomains = [
+    businessName.toLowerCase().replace(/[^a-z0-9]/g,'') + '.com.au',
+    businessName.toLowerCase().replace(/[^a-z0-9]/g,'') + '.com',
+    businessName.toLowerCase().replace(/[^a-z0-9]/g,'').replace('pizza','spizza') + '.com.au',
+  ];
+  for (const host of directDomains) {
+    for (const scheme of ['https://','http://']) {
+      try {
+        const candidate=scheme+host;
+        const fetched=await fetchHtml(candidate,10000);
+        const text=normaliseForMatch(fetched.html.replace(/<[^>]+>/g,' '));
+        const tokens=normaliseForMatch(businessName).split(' ').filter(x=>x.length>2);
+        if(tokens.filter(t=>text.includes(t)).length>=Math.max(1,Math.ceil(tokens.length/2))) return candidate;
+      } catch {}
+    }
+  }
+
   const queries = [
     `"${businessName}" "${city}"`,
     address ? `"${businessName}" "${address}"` : '',
