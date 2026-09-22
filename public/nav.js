@@ -15,6 +15,7 @@ function renderNav(me, active) {
     { href: '/batch.html', label: 'Batch', key: 'batch' },
     { href: '/branding.html', label: 'Branding', key: 'branding' },
     { href: '/billing.html', label: 'Billing', key: 'billing' },
+    ...(me.isAdmin ? [{ href: '/admin.html', label: 'Analytics', key: 'admin' }] : []),
   ];
 
   const nav = document.createElement('header');

@@ -14,6 +14,7 @@ import { batchRouter } from '../routes/batch.routes';
 import { brandingRouter } from '../routes/branding.routes';
 import { billingRouter, handleSquareWebhook } from '../routes/billing.routes';
 import { publicRouter } from '../routes/public.routes';
+import { adminRouter } from '../routes/admin.routes';
 import { runAudit } from '../engine/runAudit';
 import { createRunningReport, completeReport, failReport } from '../db/reports';
 import { findTenantById } from '../db/tenants';
@@ -50,6 +51,7 @@ app.use('/api/reports', requireAuth, reportsRouter);
 app.use('/api/batch', requireAuth, batchRouter);
 app.use('/api/branding', requireAuth, brandingRouter);
 app.use('/api/billing', requireAuth, billingRouter);
+app.use('/api/admin', adminRouter);
 
 // ---------------------------------------------------------------------------
 // POST /api/audit/stream — single interactive audit, streamed to the browser
