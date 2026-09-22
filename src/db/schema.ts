@@ -139,8 +139,8 @@ export async function initSchema(): Promise<void> {
          SET square_customer_id = NULL,
              square_subscription_id = NULL,
              square_application_id = $1,
-             status = CASE WHEN status IN ('active', 'canceling') THEN status ELSE 'trialing' END,
-             current_period_end = CASE WHEN status IN ('active', 'canceling') THEN current_period_end ELSE NULL END,
+             status = 'trialing',
+             current_period_end = NULL,
              updated_at = now()
          WHERE square_application_id IS DISTINCT FROM $1`,
       [squareApplicationId],
