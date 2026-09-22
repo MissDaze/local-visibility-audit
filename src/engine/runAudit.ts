@@ -88,14 +88,14 @@ export async function runAudit(
   // 12z zoom on a coordinate-anchored query approximates a 15km search radius
   // on Google Maps, vs. a plain "in {city}" text query which Google scopes to
   // the town/suburb boundary rather than a fixed distance.
-  const competitorQuery = `${categoryHint} in ${city}`;
+  const competitorQuery = `${categoryHint} in ${city.trim()}`;
   const competitorCoordinates = subjectRecord?.latitude != null && subjectRecord?.longitude != null
     ? `@${subjectRecord.latitude},${subjectRecord.longitude},14z`
     : undefined;
 
   console.log(`[outscraper] submitting competitor search: "${competitorQuery}"`);
   const [rawCandidates, subjectWebsiteAudit] = await Promise.all([
-    outscraperSearch(competitorQuery, 60, 120000, competitorCoordinates, subjectRecord?.country_code)
+    outscraperSearch(competitorQuery, 60, 120000, competitorCoordinates)
       .then(r => { console.log(`[outscraper] competitor search returned ${r.length} result(s)`); return r; })
       .catch((e: unknown) => {
         console.error(`[outscraper] competitor search failed for "${competitorQuery}":`, e instanceof Error ? e.message : e);
