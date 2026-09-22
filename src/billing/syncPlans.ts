@@ -2,7 +2,7 @@ import { listPricingTiers, setSquarePlanIds } from '../db/subscriptions';
 import { createSquareSubscriptionPlan, squareConfigured } from './square';
 
 const CURRENCY = process.env.SQUARE_CURRENCY || 'AUD';
-const SQUARE_PLAN_VERSION = 'monthly-after-7-day-free-v2';
+const SQUARE_PLAN_VERSION = 'monthly-after-7-day-free-v3-current-account';
 
 // Mirrors any pricing_tiers rows that don't yet have Square plan IDs into
 // Square's Catalog. pricing_tiers stays the editable source of truth — this
