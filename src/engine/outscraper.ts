@@ -6,14 +6,14 @@ import { OutscraperRecord } from '../types/outscraper';
 // Outscraper's own dashboard keeps working fine. The dashboard (and this
 // async=true mode) go through Outscraper's normal job-queue pipeline instead:
 // submit the job, then poll the returned results_location until it's done.
-export async function outscraperSearch(query: string, limit = 20, maxWaitMs = 120000, coordinates?: string, region = 'AU'): Promise<OutscraperRecord[]> {
+export async function outscraperSearch(query: string, limit = 20, maxWaitMs = 120000, coordinates?: string, region?: string): Promise<OutscraperRecord[]> {
   const apiKey = process.env.OUTSCRAPER_API_KEY;
   if (!apiKey) throw new Error('OUTSCRAPER_API_KEY is not set.');
 
   const submitUrl =
     `https://api.app.outscraper.com/maps/search-v3` +
     `?query=${encodeURIComponent(query)}&limit=${limit}&async=true&language=en` +
-    `&region=${encodeURIComponent(region)}` +
+    (region ? `&region=${encodeURIComponent(region)}` : '') +
     (coordinates ? `&coordinates=${encodeURIComponent(coordinates)}` : '');
 
   console.log(`[outscraper] fetch → ${submitUrl}`);
