@@ -369,48 +369,17 @@ export function resolveUrl(r: OutscraperRecord): string | null {
 // Public: score and filter the full competitor candidate list
 // ---------------------------------------------------------------------------
 
-const MIN_DESIRED_COMPETITORS = 5;
+const MAX_COMPETITORS = 20;
 
-// Relaxation steps used when the first pass doesn't clear MIN_DESIRED_COMPETITORS.
-// 0 as a final step means "include everyone not disqualified for a hard reason
-// (closed / no name)" — i.e. the pool has been fully exhausted.
-const THRESHOLD_RELAXATION_STEPS = [30, 15, 0];
+function distanceKm(a: OutscraperRecord, b: OutscraperRecord): number | null {
+  if (a.latitude == null || a.longitude == null || b.latitude == null || b.longitude == null) return null;
+  const rad=(x:number)=>x*Math.PI/180, dLat=rad(b.latitude-a.latitude), dLon=rad(b.longitude-a.longitude);
+  const h=Math.sin(dLat/2)**2+Math.cos(rad(a.latitude))*Math.cos(rad(b.latitude))*Math.sin(dLon/2)**2;
+  return 6371*2*Math.atan2(Math.sqrt(h),Math.sqrt(1-h));
+}
 
-function buildScoredCompetitors(
-  subject: OutscraperRecord,
-  candidates: OutscraperRecord[],
-  threshold: number,
-): ScoredCompetitor[] {
-  return candidates.map(c => {
-    const { score, categoryMatch, typeGroup, exactCategoryMatch, sameTypeGroup, breakdown } = scoreRelevance(subject, c);
-    const hasValidWebsite = isValidWebsite(c);
-
-    let exclusionReason: string | null = null;
-
-    // An exact primary-category match or a same-industry-group classification
-    // is never excluded on relevance-score grounds alone — it can still be
-    // excluded for hard reasons (closed, missing name) below.
-    if (!exactCategoryMatch && !sameTypeGroup && score < threshold) {
-      exclusionReason =
-        `Relevance score ${score} below threshold ${threshold} ` +
-        `(weakest factor: ${breakdown.weakestFactor})`;
-    } else if (c.business_status === 'CLOSED_PERMANENTLY') {
-      exclusionReason = 'Permanently closed';
-    } else if (!c.name?.trim()) {
-      exclusionReason = 'Missing business name';
-    }
-
-    return {
-      record: c,
-      relevanceScore: score,
-      included: exclusionReason === null,
-      exclusionReason,
-      hasValidWebsite,
-      categoryMatch,
-      typeGroup,
-      scoreBreakdown: breakdown,
-    };
-  });
+function duplicateKey(r: OutscraperRecord): string {
+  return [normalise(r.name || ''), normalise(r.full_address || '')].join('|');
 }
 
 export function scoreAndFilterCompetitors(
@@ -418,17 +387,44 @@ export function scoreAndFilterCompetitors(
   candidates: OutscraperRecord[],
   threshold = 45,
 ): ScoredCompetitor[] {
-  let result = buildScoredCompetitors(subject, candidates, threshold);
-  let includedCount = result.filter(c => c.included).length;
+  const seen = new Set<string>();
+  const scored: ScoredCompetitor[] = candidates.map((record: OutscraperRecord): ScoredCompetitor => {
+    const s = scoreRelevance(subject, record);
+    let exclusionReason: string | null = null;
+    if (record.business_status === 'CLOSED_PERMANENTLY') exclusionReason = 'Permanently closed';
+    else if (!record.name || !record.name.trim()) exclusionReason = 'Missing business name';
+    else if (!s.exactCategoryMatch && !s.sameTypeGroup && s.score < threshold) exclusionReason = 'Low relevance';
+    return {
+      record,
+      relevanceScore: s.score,
+      included: exclusionReason === null,
+      exclusionReason,
+      hasValidWebsite: isValidWebsite(record),
+      categoryMatch: s.categoryMatch,
+      typeGroup: s.typeGroup,
+      scoreBreakdown: s.breakdown,
+    };
+  }).map((c: ScoredCompetitor): ScoredCompetitor => {
+    if (!c.included) return c;
+    const km = distanceKm(subject, c.record);
+    if (km !== null && km > 25) {
+      return { ...c, included: false, exclusionReason: 'Outside local market radius (' + Math.round(km) + ' km)' };
+    }
+    if (c.record.business_status === 'CLOSED_TEMPORARILY') {
+      return { ...c, included: false, exclusionReason: 'Temporarily closed' };
+    }
+    const key = duplicateKey(c.record);
+    if (seen.has(key)) return { ...c, included: false, exclusionReason: 'Duplicate listing' };
+    seen.add(key);
+    return c;
+  });
 
-  // Fewer than MIN_DESIRED_COMPETITORS passed — progressively relax the
-  // threshold rather than leaving a thin/unusable benchmark set, until we
-  // hit the minimum or run out of relaxation steps (full pool exhausted).
-  for (const relaxedThreshold of THRESHOLD_RELAXATION_STEPS) {
-    if (includedCount >= MIN_DESIRED_COMPETITORS) break;
-    result = buildScoredCompetitors(subject, candidates, relaxedThreshold);
-    includedCount = result.filter(c => c.included).length;
-  }
-
-  return result;
+  // Never weaken the relevance threshold merely to manufacture a larger set.
+  // Keep only the strongest defensible competitors; a sparse set lowers
+  // benchmark confidence downstream instead.
+  const included = scored.filter((c: ScoredCompetitor) => c.included).sort((a: ScoredCompetitor,b: ScoredCompetitor) => b.relevanceScore - a.relevanceScore);
+  const keep = new Set(included.slice(0, MAX_COMPETITORS));
+  return scored.map((c: ScoredCompetitor): ScoredCompetitor => c.included && !keep.has(c)
+    ? { ...c, included: false, exclusionReason: `Outside top ${MAX_COMPETITORS} relevant competitors` }
+    : c);
 }

@@ -11,7 +11,9 @@ import {
   SubjectWebsiteAudit,
   CompetitorWebsiteCheck,
 } from './web-audit';
-import { outscraperSearch } from './outscraper';
+import { outscraperSearch, outscraperReviews } from './outscraper';
+import { summarizeReviews } from './review-velocity';
+import { buildCanonicalAnalysis, validateCanonicalAnalysis } from './analysis';
 
 const openrouter = new OpenAI({
   apiKey: process.env.OPENROUTER_API_KEY || '',
@@ -86,13 +88,14 @@ export async function runAudit(
   // 12z zoom on a coordinate-anchored query approximates a 15km search radius
   // on Google Maps, vs. a plain "in {city}" text query which Google scopes to
   // the town/suburb boundary rather than a fixed distance.
-  const competitorQuery = subjectRecord?.latitude && subjectRecord?.longitude
-    ? `${categoryHint} @${subjectRecord.latitude},${subjectRecord.longitude},12z`
-    : `${categoryHint} in ${city}`;
+  const competitorQuery = `${categoryHint} in ${city.trim()}`;
+  const competitorCoordinates = subjectRecord?.latitude != null && subjectRecord?.longitude != null
+    ? `@${subjectRecord.latitude},${subjectRecord.longitude},14z`
+    : undefined;
 
   console.log(`[outscraper] submitting competitor search: "${competitorQuery}"`);
   const [rawCandidates, subjectWebsiteAudit] = await Promise.all([
-    outscraperSearch(competitorQuery, 20)
+    outscraperSearch(competitorQuery, 60, 120000, competitorCoordinates)
       .then(r => { console.log(`[outscraper] competitor search returned ${r.length} result(s)`); return r; })
       .catch((e: unknown) => {
         console.error(`[outscraper] competitor search failed for "${competitorQuery}":`, e instanceof Error ? e.message : e);
@@ -102,7 +105,7 @@ export async function runAudit(
     (async (): Promise<SubjectWebsiteAudit | null> => {
       const knownUrl = resolveUrl(subjectRecord ?? {} as OutscraperRecord);
       const url = knownUrl || (subjectRecord
-        ? await searchForWebsite(businessName, city)
+        ? await searchForWebsite(businessName, city, subjectRecord.full_address, subjectRecord.phone)
         : null);
 
       if (!url) {
@@ -189,8 +192,46 @@ export async function runAudit(
     }
   }
 
-  // ── Step 7: Debug payload ─────────────────────────────────────────────────
+  // ── Step 7: Canonical analysis + QA ───────────────────────────────────────
+  const analysis = buildCanonicalAnalysis(subjectRecord, scoredCompetitors, benchmarkData);
+
+  // Recent-review evidence. Subject uses a 90-day cutoff and up to 100 newest
+  // reviews; peers use only 20 newest reviews, so peer 90-day counts are
+  // explicitly lower-bound estimates.
+  const reviewQuery = (r: OutscraperRecord) => r.place_id || r.name;
+  const cutoff90 = Math.floor((Date.now() - 90 * 86400000) / 1000);
+  if (subjectRecord) {
+    try {
+      const subjectReviews = await outscraperReviews(reviewQuery(subjectRecord), 100, cutoff90);
+      analysis.time.subject = summarizeReviews(subjectReviews, subjectReviews.length < 100);
+    } catch (e) {
+      console.warn('[reviews] subject velocity unavailable:', e instanceof Error ? e.message : e);
+    }
+  }
+  const peers = analysis.set.members.slice(0, 20);
+  const peerEvidence = await Promise.all(peers.map(async peer => {
+    const source = includedCompetitors.find(x => x.record.name === peer.name)?.record;
+    if (!source) return null;
+    try {
+      const reviews = await outscraperReviews(reviewQuery(source), 20);
+      const s = summarizeReviews(reviews, false);
+      return { name: peer.name, reviews90dLowerBound: s.reviews90d, daysSinceLast: s.daysSinceLast, active30d: s.reviews30d > 0, estimate: true as const };
+    } catch (e) {
+      console.warn('[reviews] peer velocity unavailable for '+peer.name+':', e instanceof Error ? e.message : e);
+      return null;
+    }
+  }));
+  analysis.time.peers = peerEvidence.filter((x): x is NonNullable<typeof x> => x !== null);
+  const peer90 = analysis.time.peers.map(x => x.reviews90dLowerBound).sort((a,b)=>a-b);
+  if (peer90.length) {
+    const mid=Math.floor(peer90.length/2);
+    analysis.time.peerMedian90d = peer90.length%2 ? peer90[mid] : Math.round((peer90[mid-1]+peer90[mid])/2);
+  }
+  validateCanonicalAnalysis(analysis);
+
+  // ── Step 8: Debug payload ─────────────────────────────────────────────────
   const debug = {
+    analysis,
     subject: subjectRecord ? {
       name: subjectRecord.name,
       type: subjectRecord.type,
@@ -245,7 +286,7 @@ export async function runAudit(
 
   onEvent({ status: `Generating your report…` });
 
-  // ── Step 8: Build prompt and stream LLM ──────────────────────────────────
+  // ── Step 9: Build prompt and stream LLM ──────────────────────────────────
   const includedRecords = includedCompetitors.map(c => c.record);
 
   const userMessage = buildUserMessage(
