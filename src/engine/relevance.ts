@@ -371,6 +371,13 @@ export function resolveUrl(r: OutscraperRecord): string | null {
 
 const MAX_COMPETITORS = 20;
 
+function distanceKm(a: OutscraperRecord, b: OutscraperRecord): number | null {
+  if (a.latitude == null || a.longitude == null || b.latitude == null || b.longitude == null) return null;
+  const rad=(x:number)=>x*Math.PI/180, dLat=rad(b.latitude-a.latitude), dLon=rad(b.longitude-a.longitude);
+  const h=Math.sin(dLat/2)**2+Math.cos(rad(a.latitude))*Math.cos(rad(b.latitude))*Math.sin(dLon/2)**2;
+  return 6371*2*Math.atan2(Math.sqrt(h),Math.sqrt(1-h));
+}
+
 function duplicateKey(r: OutscraperRecord): string {
   return [normalise(r.name || ''), normalise(r.full_address || '')].join('|');
 }
@@ -399,6 +406,13 @@ export function scoreAndFilterCompetitors(
     };
   }).map((c: ScoredCompetitor): ScoredCompetitor => {
     if (!c.included) return c;
+    const km = distanceKm(subject, c.record);
+    if (km !== null && km > 25) {
+      return { ...c, included: false, exclusionReason: 'Outside local market radius (' + Math.round(km) + ' km)' };
+    }
+    if (c.record.country_code && c.record.country_code.toUpperCase() !== 'AU') {
+      return { ...c, included: false, exclusionReason: 'Outside Australia' };
+    }
     if (c.record.business_status === 'CLOSED_TEMPORARILY') {
       return { ...c, included: false, exclusionReason: 'Temporarily closed' };
     }
