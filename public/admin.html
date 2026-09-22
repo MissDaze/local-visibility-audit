@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Admin Analytics — Local Visibility Audit</title>
+<link rel="stylesheet" href="/shared.css">
+<style>
+.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin:20px 0 30px}
+.metric{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px}
+.metric strong{display:block;font-size:28px;margin-top:6px}.metric span{font-size:12px;color:var(--muted);text-transform:uppercase}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}.bars{height:190px;display:flex;align-items:flex-end;gap:5px;padding-top:20px}
+.bar-wrap{flex:1;height:100%;display:flex;align-items:flex-end;position:relative}.bar{width:100%;min-height:2px;background:currentColor;border-radius:3px 3px 0 0;opacity:.65}
+.bar-wrap:hover:after{content:attr(data-tip);position:absolute;bottom:100%;left:50%;transform:translateX(-50%);background:#111;color:#fff;padding:4px 6px;border-radius:4px;font-size:11px;white-space:nowrap}
+@media(max-width:760px){.grid{grid-template-columns:1fr}} .section-title{margin:28px 0 10px;font-weight:700}
+</style>
+</head>
+<body><div class="page wide">
+<h1 class="page-title">Admin Analytics</h1><p class="page-sub">Live customer and report activity from the production database.</p>
+<div class="metrics" id="metrics"></div>
+<div class="grid">
+<div class="card"><strong>Sign-ups — last 14 days</strong><div class="bars" id="signup-bars"></div></div>
+<div class="card"><strong>Reports — last 14 days</strong><div class="bars" id="report-bars"></div></div>
+</div>
+<div class="section-title">Recent accounts</div>
+<div class="card" style="padding:0;overflow-x:auto"><table class="simple-table"><thead><tr><th>Email</th><th>Company</th><th>Plan</th><th>Reports</th><th>Joined</th></tr></thead><tbody id="accounts"></tbody></table></div>
+<div class="section-title">Recent reports</div>
+<div class="card" style="padding:0;overflow-x:auto"><table class="simple-table"><thead><tr><th>Business</th><th>Account</th><th>Status</th><th>Created</th></tr></thead><tbody id="reports"></tbody></table></div>
+</div>
+<script src="/nav.js"></script>
+<script>
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const dt=s=>new Date(s).toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'});
+function bars(id,rows){const max=Math.max(1,...rows.map(x=>x.count));document.getElementById(id).innerHTML=rows.map(x=>`<div class="bar-wrap" data-tip="${esc(new Date(x.day).toLocaleDateString())}: ${x.count}"><div class="bar" style="height:${Math.max(2,x.count/max*100)}%"></div></div>`).join('')}
+(async()=>{
+ const me=await requireAuthOrRedirect('admin');if(!me)return;
+ const r=await fetch('/api/admin/analytics');if(r.status===403){document.querySelector('.page').innerHTML='<h1>Admin access required</h1>';return}
+ const d=await r.json(),s=d.summary;
+ const cards=[['Total accounts',s.total_accounts],['Sign-ups · 7d',s.signups_7d],['Active trials',s.active_trials],['Total reports',s.total_reports],['Reports · 7d',s.reports_7d],['Report users · 7d',s.active_report_users_7d],['Paid subscriptions',s.paid_subscriptions]];
+ document.getElementById('metrics').innerHTML=cards.map(x=>`<div class="metric"><span>${x[0]}</span><strong>${x[1]}</strong></div>`).join('');
+ bars('signup-bars',d.signupsByDay);bars('report-bars',d.reportsByDay);
+ document.getElementById('accounts').innerHTML=d.recentAccounts.length?d.recentAccounts.map(x=>`<tr><td>${esc(x.email)}</td><td>${esc(x.company_name||'—')}</td><td>${esc(x.plan_tier)}</td><td>${x.reports_generated}</td><td>${dt(x.created_at)}</td></tr>`).join(''):'<tr><td colspan="5">No accounts.</td></tr>';
+ document.getElementById('reports').innerHTML=d.recentReports.length?d.recentReports.map(x=>`<tr><td><strong>${esc(x.business_name)}</strong><br><span class="muted">${esc(x.city)}</span></td><td>${esc(x.company_name||x.email)}</td><td>${esc(x.status)}</td><td>${dt(x.created_at)}</td></tr>`).join(''):'<tr><td colspan="4">No reports.</td></tr>';
+})().catch(e=>{document.querySelector('.page').insertAdjacentHTML('beforeend','<p>Unable to load analytics.</p>')});
+</script></body></html>
