@@ -35,6 +35,11 @@ export interface CanonicalAnalysis {
     excluded: CompetitorEvidence[];
   };
   benchmarks: BenchmarkData;
+  time: {
+    subject: null | { reviews30d:number; reviews90d:number; daysSinceLast:number|null; lowRatingShare90d:number|null; ownerReplyRate90d:number|null; exact:boolean };
+    peers: Array<{ name:string; reviews90dLowerBound:number; daysSinceLast:number|null; active30d:boolean; estimate:true }>;
+    peerMedian90d:number|null;
+  };
   visibility: null;
   overallExcludes: ['visibility'];
 }
@@ -93,6 +98,7 @@ export function buildCanonicalAnalysis(subject: OutscraperRecord | null, scored:
       excluded: evidence.filter(e => !e.included),
     },
     benchmarks,
+    time: { subject: null, peers: [], peerMedian90d: null },
     visibility: null,
     overallExcludes: ['visibility'],
   };
