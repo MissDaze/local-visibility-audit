@@ -22,23 +22,23 @@ import { resolveUrl } from './relevance';
 export interface SubjectWebsiteAudit {
   url: string;
   reachable: boolean;
-  ssl: boolean;
+  ssl: boolean | null;
   loadTimeMs: number | null;
   title: string | null;
   metaDescription: string | null;
   h1: string | null;
   topHeadings: string[];
-  hasPhone: boolean;
-  hasEmail: boolean;
-  hasBooking: boolean;
-  hasOnlineOrdering: boolean;
-  hasMenu: boolean;
-  hasPricingOrRates: boolean;
-  hasTestimonials: boolean;
-  hasContactPage: boolean;
-  hasMobileViewport: boolean;
+  hasPhone: boolean | null;
+  hasEmail: boolean | null;
+  hasBooking: boolean | null;
+  hasOnlineOrdering: boolean | null;
+  hasMenu: boolean | null;
+  hasPricingOrRates: boolean | null;
+  hasTestimonials: boolean | null;
+  hasContactPage: boolean | null;
+  hasMobileViewport: boolean | null;
   detectedCTAs: string[];
-  qualityScore: number;
+  qualityScore: number | null;
   qualityNotes: string[];
   error: string | null;
 }
@@ -49,9 +49,9 @@ export interface CompetitorWebsiteCheck {
   reachable: boolean;
   ssl: boolean | null;
   title: string | null;
-  hasBooking: boolean;
-  hasOnlineOrdering: boolean;
-  hasMenu: boolean;
+  hasBooking: boolean | null;
+  hasOnlineOrdering: boolean | null;
+  hasMenu: boolean | null;
   error: string | null;
 }
 
@@ -240,16 +240,16 @@ export async function auditSubjectWebsite(
     return { ...partial, qualityScore: score, qualityNotes: notes };
 
   } catch (e: unknown) {
-    const error = e instanceof Error ? e.message : String(e);
-    const partial = {
-      url, reachable: false, ssl, loadTimeMs: null,
+    return {
+      url, reachable: false, ssl: null, loadTimeMs: null,
       title: null, metaDescription: null, h1: null, topHeadings: [],
-      hasPhone: false, hasEmail: false, hasBooking: false, hasOnlineOrdering: false,
-      hasMenu: false, hasPricingOrRates: false, hasTestimonials: false,
-      hasContactPage: false, hasMobileViewport: false, detectedCTAs: [], error,
+      hasPhone: null, hasEmail: null, hasBooking: null, hasOnlineOrdering: null,
+      hasMenu: null, hasPricingOrRates: null, hasTestimonials: null,
+      hasContactPage: null, hasMobileViewport: null, detectedCTAs: [],
+      qualityScore: null,
+      qualityNotes: ['Unable to assess: the automated fetch did not complete. Website content and functionality are unknown.'],
+      error: e instanceof Error ? e.message : String(e),
     };
-    const { score, notes } = computeQualityScore(partial);
-    return { ...partial, qualityScore: score, qualityNotes: notes };
   }
 }
 
@@ -275,8 +275,8 @@ async function checkCompetitorWebsite(
     };
   } catch (e: unknown) {
     return {
-      name, url, reachable: false, ssl, title: null,
-      hasBooking: false, hasOnlineOrdering: false, hasMenu: false,
+      name, url, reachable: false, ssl: null, title: null,
+      hasBooking: null, hasOnlineOrdering: null, hasMenu: null,
       error: e instanceof Error ? e.message : String(e),
     };
   }
@@ -311,9 +311,9 @@ export async function auditCompetitorWebsites(
           reachable: false,
           ssl: null,
           title: null,
-          hasBooking: false,
-          hasOnlineOrdering: false,
-          hasMenu: false,
+          hasBooking: null,
+          hasOnlineOrdering: null,
+          hasMenu: null,
           error: r.reason instanceof Error ? r.reason.message : 'fetch failed',
         },
   );

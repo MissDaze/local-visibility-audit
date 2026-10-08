@@ -7,9 +7,12 @@ export interface OutscraperRecord {
   city?: string;
   state?: string;
   country_code?: string;
+  country?: string;
+  place_id?: string;
+  google_id?: string;
   postal_code?: string;
-  latitude?: number;
-  longitude?: number;
+  latitude?: number | string;
+  longitude?: number | string;
 
   // Contact
   phone?: string;

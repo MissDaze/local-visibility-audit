@@ -6,13 +6,20 @@ import { OutscraperRecord } from '../types/outscraper';
 // Outscraper's own dashboard keeps working fine. The dashboard (and this
 // async=true mode) go through Outscraper's normal job-queue pipeline instead:
 // submit the job, then poll the returned results_location until it's done.
-export async function outscraperSearch(query: string, limit = 20, maxWaitMs = 120000): Promise<OutscraperRecord[]> {
+export async function outscraperSearch(query: string, limit = 20, maxWaitMs = 120000, location?: { coordinates: string; region: string }): Promise<OutscraperRecord[]> {
   const apiKey = process.env.OUTSCRAPER_API_KEY;
   if (!apiKey) throw new Error('OUTSCRAPER_API_KEY is not set.');
 
+  // Maps URLs are a documented coordinate-query format for Maps scraping.
+  // Include one as well as the location parameters, so v3 cannot interpret
+  // a coordinate string as ordinary business-name search text.
+  const searchQuery = location
+    ? `https://www.google.com/maps/search/${encodeURIComponent(query)}/${location.coordinates}`
+    : query;
   const submitUrl =
     `https://api.app.outscraper.com/maps/search-v3` +
-    `?query=${encodeURIComponent(query)}&limit=${limit}&async=true&language=en`;
+    `?query=${encodeURIComponent(searchQuery)}&limit=${limit}&async=true&language=en` +
+    (location ? `&coordinates=${encodeURIComponent(location.coordinates)}&region=${encodeURIComponent(location.region)}` : "");
 
   console.log(`[outscraper] fetch → ${submitUrl}`);
   const submitRes = await fetch(submitUrl, {

@@ -1,6 +1,7 @@
 import { OutscraperRecord } from '../types/outscraper';
 import { ScoredCompetitor, isValidWebsite } from './relevance';
 import { formatBenchmarkRank } from '../reports/rankings';
+import { geographyExclusion, MIN_LOCAL_COMPETITORS } from './geography';
 
 export interface BenchmarkData {
   // Sample
@@ -71,6 +72,9 @@ export function computeBenchmarks(
   scoredCompetitors: ScoredCompetitor[],
 ): BenchmarkData {
   const included = scoredCompetitors.filter(c => c.included);
+  if (!subject || included.length < MIN_LOCAL_COMPETITORS || included.some(c => geographyExclusion(subject, c.record) !== null)) {
+    throw new Error('Benchmark blocked: the subject and a sufficient local competitor set must pass geographic validation.');
+  }
   const excludedCount = scoredCompetitors.length - included.length;
 
   // Website counts
@@ -115,6 +119,7 @@ export function computeBenchmarks(
   // ── Benchmark confidence ─────────────────────────────────────────────────
   const confidenceReasons: string[] = [];
   let confidence = 100;
+  confidenceReasons.push('Country and straight-line distance checked for every included competitor; source metrics are not independently verified.');
 
   if (included.length === 0) {
     confidence = 0;
@@ -148,10 +153,10 @@ export function computeBenchmarks(
   confidence = Math.max(0, Math.min(100, confidence));
 
   const websiteValidationSummary =
-    `Competitors analysed: ${included.length} | With websites: ${withWebsites} | Without websites: ${withoutWebsites}`;
+    `Competitors analysed: ${included.length} | With detected URLs: ${withWebsites} | Website not detected: ${withoutWebsites}`;
 
   // ── Contradiction constraints (sent to LLM as hard rules) ───────────────
-  const constraints: string[] = [];
+  const constraints: string[] = ['CONSTRAINT — GEOGRAPHY: Only the geographically validated supplied sample may be used. Do not add or invent competitors.'];
 
   // Website
   if (withWebsites > 0) {

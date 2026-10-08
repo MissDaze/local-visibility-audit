@@ -1,4 +1,5 @@
 import { OutscraperRecord } from '../types/outscraper';
+import { distanceKm, geographyExclusion, LOCAL_RADIUS_KM, samePlace, uniquePlaces } from './geography';
 
 export interface ScoreBreakdown {
   categoryRaw: number;       // 0-100, Jaccard over type+subtypes tokens
@@ -7,7 +8,7 @@ export interface ScoreBreakdown {
   typeGroupWeighted: number; // typeGroupRaw * 0.25
   keywordRaw: number;        // 0-100, Jaccard over name+category tokens
   keywordWeighted: number;   // keywordRaw * 0.15
-  distanceRaw: number;       // fixed 75 (Outscraper pre-filters by area)
+  distanceRaw: number;       // calculated from verified coordinates
   distanceWeighted: number;  // distanceRaw * 0.10
   weakestFactor: string;     // factor with the lowest weighted/max-weight ratio
 }
@@ -260,8 +261,9 @@ function scoreRelevance(
   const competitorAll = new Set([...competitorCatTokens, ...competitorNameTokens]);
   const keywordScore = jaccardSimilarity(subjectAll, competitorAll) * 100;
 
-  // --- 4. Distance (10%) — Outscraper already filters by area, use fixed 75 ---
-  const distanceScore = 75;
+  // Search location is a hint, never proof that a result is local.
+  const distance = distanceKm(subject, competitor);
+  const distanceScore = distance === null ? 0 : Math.max(0, 100 * (1 - distance / LOCAL_RADIUS_KM));
 
   let finalScore = Math.round(
     catScore * 0.50 +
@@ -369,13 +371,6 @@ export function resolveUrl(r: OutscraperRecord): string | null {
 // Public: score and filter the full competitor candidate list
 // ---------------------------------------------------------------------------
 
-const MIN_DESIRED_COMPETITORS = 5;
-
-// Relaxation steps used when the first pass doesn't clear MIN_DESIRED_COMPETITORS.
-// 0 as a final step means "include everyone not disqualified for a hard reason
-// (closed / no name)" — i.e. the pool has been fully exhausted.
-const THRESHOLD_RELAXATION_STEPS = [30, 15, 0];
-
 function buildScoredCompetitors(
   subject: OutscraperRecord,
   candidates: OutscraperRecord[],
@@ -385,17 +380,21 @@ function buildScoredCompetitors(
     const { score, categoryMatch, typeGroup, exactCategoryMatch, sameTypeGroup, breakdown } = scoreRelevance(subject, c);
     const hasValidWebsite = isValidWebsite(c);
 
-    let exclusionReason: string | null = null;
+    let exclusionReason: string | null = geographyExclusion(subject, c);
 
     // An exact primary-category match or a same-industry-group classification
     // is never excluded on relevance-score grounds alone — it can still be
     // excluded for hard reasons (closed, missing name) below.
-    if (!exactCategoryMatch && !sameTypeGroup && score < threshold) {
+    if (exclusionReason) {
+      // Geographic failures cannot be overridden by category similarity.
+    } else if (samePlace(subject, c)) {
+      exclusionReason = 'Subject business, not a competitor';
+    } else if (!exactCategoryMatch && !sameTypeGroup && score < threshold) {
       exclusionReason =
         `Relevance score ${score} below threshold ${threshold} ` +
         `(weakest factor: ${breakdown.weakestFactor})`;
-    } else if (c.business_status === 'CLOSED_PERMANENTLY') {
-      exclusionReason = 'Permanently closed';
+    } else if (/closed/i.test(c.business_status || '')) {
+      exclusionReason = 'Business is marked closed';
     } else if (!c.name?.trim()) {
       exclusionReason = 'Missing business name';
     }
@@ -418,17 +417,6 @@ export function scoreAndFilterCompetitors(
   candidates: OutscraperRecord[],
   threshold = 45,
 ): ScoredCompetitor[] {
-  let result = buildScoredCompetitors(subject, candidates, threshold);
-  let includedCount = result.filter(c => c.included).length;
-
-  // Fewer than MIN_DESIRED_COMPETITORS passed — progressively relax the
-  // threshold rather than leaving a thin/unusable benchmark set, until we
-  // hit the minimum or run out of relaxation steps (full pool exhausted).
-  for (const relaxedThreshold of THRESHOLD_RELAXATION_STEPS) {
-    if (includedCount >= MIN_DESIRED_COMPETITORS) break;
-    result = buildScoredCompetitors(subject, candidates, relaxedThreshold);
-    includedCount = result.filter(c => c.included).length;
-  }
-
-  return result;
+  // Never relax relevance or geographic requirements to pad the sample.
+  return buildScoredCompetitors(subject, uniquePlaces(candidates), threshold);
 }

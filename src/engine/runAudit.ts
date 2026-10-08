@@ -2,7 +2,7 @@ import OpenAI from 'openai';
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 import { OutscraperRecord } from '../types/outscraper';
 import { SYSTEM_PROMPT, buildUserMessage } from '../llm/prompt-builder';
-import { scoreAndFilterCompetitors, ScoredCompetitor, ScoreBreakdown, resolveUrl } from './relevance';
+import { scoreAndFilterCompetitors, ScoredCompetitor, resolveUrl } from './relevance';
 import { computeBenchmarks, BenchmarkData } from './benchmark';
 import {
   searchForWebsite,
@@ -12,6 +12,7 @@ import {
   CompetitorWebsiteCheck,
 } from './web-audit';
 import { outscraperSearch } from './outscraper';
+import { coordinates, countryCode, distanceKm, LOCAL_RADIUS_KM, MIN_LOCAL_COMPETITORS, samePlace, selectSubject } from './geography';
 
 const openrouter = new OpenAI({
   apiKey: process.env.OPENROUTER_API_KEY || '',
@@ -61,38 +62,29 @@ export async function runAudit(
   // ── Step 1: Subject business (Outscraper) ────────────────────────────────
   onEvent({ status: `Searching Google Maps for "${businessName}" in ${city}…` });
 
-  let subjectRecord: OutscraperRecord | null = null;
-  try {
-    console.log(`[outscraper] submitting subject search: "${businessName} ${city}"`);
-    const results = await outscraperSearch(`${businessName} ${city}`, 1);
-    console.log(`[outscraper] subject search returned ${results.length} result(s)`);
-    subjectRecord = results[0] ?? null;
-
-    if (subjectRecord) {
-      onEvent({ status: `Found: ${subjectRecord.name} — ${subjectRecord.rating}★ (${subjectRecord.reviews} reviews)` });
-    } else {
-      onEvent({ status: `No exact match found for "${businessName}". Continuing with competitor data only.` });
-    }
-  } catch (e: unknown) {
-    console.error(`[outscraper] subject search failed for "${businessName} ${city}":`, e instanceof Error ? e.message : e);
-    onEvent({ status: `Could not fetch business data: ${e instanceof Error ? e.message : 'unknown error'}` });
-  }
+  const subjectResults = await outscraperSearch(`${businessName}, ${city}`, 5);
+  const subjectRecord = selectSubject(subjectResults, businessName, city);
+  const subjectCoordinates = coordinates(subjectRecord)!;
+  const subjectCountry = countryCode(subjectRecord)!;
+  onEvent({ status: `Verified: ${subjectRecord.name} — ${subjectRecord.full_address}` });
 
   // ── Steps 2 + 3 run in parallel: competitor fetch + subject website audit ─
   const categoryHint = industry?.trim() || subjectRecord?.type || businessName;
 
   onEvent({ status: `Fetching competitors and auditing websites…` });
 
-  // 12z zoom on a coordinate-anchored query approximates a 15km search radius
-  // on Google Maps, vs. a plain "in {city}" text query which Google scopes to
-  // the town/suburb boundary rather than a fixed distance.
-  const competitorQuery = subjectRecord?.latitude && subjectRecord?.longitude
-    ? `${categoryHint} @${subjectRecord.latitude},${subjectRecord.longitude},12z`
-    : `${categoryHint} in ${city}`;
+  // Use Outscraper's dedicated location parameters, not coordinates embedded
+  // in the query text. The returned rows are independently distance-checked.
+  const competitorQuery = [categoryHint, subjectRecord.city || city, subjectRecord.state,
+    subjectRecord.country || subjectCountry].filter(Boolean).join(', ');
+  const searchLocation = {
+    coordinates: `@${subjectCoordinates.lat},${subjectCoordinates.lng},12z`,
+    region: subjectCountry,
+  };
 
   console.log(`[outscraper] submitting competitor search: "${competitorQuery}"`);
   const [rawCandidates, subjectWebsiteAudit] = await Promise.all([
-    outscraperSearch(competitorQuery, 20)
+    outscraperSearch(competitorQuery, 40, 120000, searchLocation)
       .then(r => { console.log(`[outscraper] competitor search returned ${r.length} result(s)`); return r; })
       .catch((e: unknown) => {
         console.error(`[outscraper] competitor search failed for "${competitorQuery}":`, e instanceof Error ? e.message : e);
@@ -116,43 +108,32 @@ export async function runAudit(
 
       onEvent({ status: `Found website for "${businessName}" — auditing content…` });
       const audit = await auditSubjectWebsite(url);
-      onEvent({ status: `Website audit complete (quality score: ${audit.qualityScore}/100)` });
+      onEvent({ status: audit.qualityScore === null ? 'Website could not be assessed; no quality score assigned.' : `Website audit complete (quality score: ${audit.qualityScore}/100)` });
       return audit;
     })(),
   ]);
 
-  const filteredCandidates = subjectRecord?.name
-    ? rawCandidates.filter(r => r.name?.toLowerCase().trim() !== subjectRecord!.name!.toLowerCase().trim())
-    : rawCandidates;
-
-  // ── Step 4: Relevance scoring ────────────────────────────────────────────
-  onEvent({ status: `Scoring ${filteredCandidates.length} competitor candidates for relevance…` });
-
-  let scoredCompetitors: ScoredCompetitor[] = [];
-  if (subjectRecord && filteredCandidates.length > 0) {
-    scoredCompetitors = scoreAndFilterCompetitors(subjectRecord, filteredCandidates, 45);
-  } else {
-    const unscoredBreakdown: ScoreBreakdown = {
-      categoryRaw: 0, categoryWeighted: 0,
-      typeGroupRaw: 0, typeGroupWeighted: 0,
-      keywordRaw: 0, keywordWeighted: 0,
-      distanceRaw: 0, distanceWeighted: 0,
-      weakestFactor: 'n/a (no subject to compare against)',
-    };
-    scoredCompetitors = filteredCandidates.map(r => ({
-      record: r,
-      relevanceScore: 50,
-      included: true,
-      exclusionReason: null,
-      hasValidWebsite: !!resolveUrl(r),
-      categoryMatch: 'Unscored (no subject)',
-      typeGroup: null,
-      scoreBreakdown: unscoredBreakdown,
-    }));
+  const filteredCandidates = rawCandidates.filter(record => !samePlace(subjectRecord, record));
+  onEvent({ status: `Checking country, distance and category for ${filteredCandidates.length} competitors…` });
+  const scoredCompetitors: ScoredCompetitor[] = scoreAndFilterCompetitors(subjectRecord, filteredCandidates, 45);
+  // Prefer the nearest eligible businesses, capped at the advertised sample.
+  const localCompetitors = scoredCompetitors.filter(c => c.included)
+    .sort((a, b) => distanceKm(subjectRecord, a.record)! - distanceKm(subjectRecord, b.record)!);
+  for (const competitor of localCompetitors.slice(20)) {
+    competitor.included = false;
+    competitor.exclusionReason = 'Outside the nearest 20 eligible local competitors';
   }
 
   const includedCompetitors = scoredCompetitors.filter(c => c.included);
   const excludedCount = scoredCompetitors.length - includedCompetitors.length;
+  if (includedCompetitors.length < MIN_LOCAL_COMPETITORS) {
+    onEvent({ debug: { geographyVersion: 1, subject: subjectRecord, radiusKm: LOCAL_RADIUS_KM,
+      competitors: scoredCompetitors.map(c => ({ name: c.record.name, address: c.record.full_address,
+        country: countryCode(c.record), distanceKm: distanceKm(subjectRecord, c.record),
+        included: c.included, exclusionReason: c.exclusionReason })) } });
+    throw new Error(`Only ${includedCompetitors.length} relevant competitors could be verified within ${LOCAL_RADIUS_KM} km in ${subjectCountry}. At least ${MIN_LOCAL_COMPETITORS} are required. No benchmark report was generated; please check the business location.`);
+  }
+
 
   onEvent({
     status: `${includedCompetitors.length} relevant competitors identified` +
@@ -191,8 +172,15 @@ export async function runAudit(
 
   // ── Step 7: Debug payload ─────────────────────────────────────────────────
   const debug = {
+    geographyVersion: 1,
+    geography: { radiusKm: LOCAL_RADIUS_KM, country: subjectCountry, checkedAt: new Date().toISOString(), searchQuery: competitorQuery },
     subject: subjectRecord ? {
       name: subjectRecord.name,
+      address: subjectRecord.full_address,
+      country: subjectCountry,
+      latitude: subjectCoordinates.lat,
+      longitude: subjectCoordinates.lng,
+      placeId: subjectRecord.place_id || subjectRecord.google_id || null,
       type: subjectRecord.type,
       rating: subjectRecord.rating,
       reviews: subjectRecord.reviews,
@@ -211,6 +199,12 @@ export async function runAudit(
       const webCheck = competitorWebsiteChecks.find(w => w.name === c.record.name);
       return {
         name: c.record.name,
+        address: c.record.full_address,
+        country: countryCode(c.record),
+        distanceKm: distanceKm(subjectRecord, c.record),
+        latitude: c.record.latitude,
+        longitude: c.record.longitude,
+        placeId: c.record.place_id || c.record.google_id || null,
         category: c.record.type,
         subtypes: c.record.subtypes,
         relevanceScore: c.relevanceScore,

@@ -1,5 +1,6 @@
 import { OutscraperRecord } from '../types/outscraper';
 import { BenchmarkData } from '../engine/benchmark';
+import { distanceKm, LOCAL_RADIUS_KM } from '../engine/geography';
 import { SubjectWebsiteAudit, CompetitorWebsiteCheck } from '../engine/web-audit';
 
 export const SYSTEM_PROMPT = `You are a senior local business visibility consultant who produces consultant-grade business growth assessments. Your reports feel like they were written by an experienced human expert — not an automated tool. You write with authority, commercial awareness, and empathy for the business owner.
@@ -13,6 +14,11 @@ export const SYSTEM_PROMPT = `You are a senior local business visibility consult
 4. The report arc must feel like: Diagnosis → Evidence → Recommended actions → Implementation options.
 5. WEBSITE DATA RELIABILITY: Outscraper frequently does not return website URLs even when a business has one. An empty or missing site field does NOT confirm the business has no website. Never state definitively that a business or its competitors have no website based solely on a missing URL field. Use language like "no website was detected in the data" rather than "has no website". Only make positive website claims when a URL is actually present in the data.
 6. RANKING WORDING: Copy the supplied rank labels into the rankings table. When the subject falls below every benchmark competitor, use "Below all N benchmark competitors" in the table and "below all N benchmark competitors" in prose. This means the business sits outside that benchmark list; do not express it as "#21 of 20" or add the subject to the competitor count. These comparisons describe the measured metric, not Google search-result positions.
+
+7. FAILED WEBSITE FETCH: If an audit could not fetch a page, its quality and content are UNKNOWN. Do not claim the site is broken, lacks features, has a redirect loop, has hosting/SSL problems, or loses customers. Report "Unable to assess automatically; manual check needed". Do not recommend repairs until the fault is independently confirmed.
+8. GEOGRAPHY: Use only the provided geographically filtered competitor set. Never introduce other businesses. The sample is bounded by the supplied country and radius and is not the entire market. Never describe data as comprehensively verified or equate a large sample with verified accuracy. Do not add a competitor directory, address table or distance table to the report; retain the existing report format.
+9. Missing scraped fields mean "not returned in the data", not proven absent from the live profile. Missing URLs are not evidence that the subject has a website advantage. Never recommend selective positive-review solicitation; request honest reviews without selecting customers by satisfaction.
+10. Confidence measures source coverage and relevance only, not independently verified truth. Use the supplied confidence label and explain its limitations.
 
 ## INTERNAL PRE-ANALYSIS (do not output this — use it to shape your writing)
 Before writing a single word, develop these four answers from the data:
@@ -266,6 +272,7 @@ function formatRecord(r: OutscraperRecord, index?: number): string {
   const prefix = index !== undefined ? `${index + 1}. ` : '';
   const lines = [
     `${prefix}**${r.name ?? 'Unknown'}**`,
+    `   Address: ${r.full_address ?? 'Not supplied'} | Country: ${r.country_code ?? 'Not supplied'}`,
     `   Rating: ${r.rating ?? 'N/A'}★ | Reviews: ${r.reviews ?? 'N/A'}`,
     `   Photos: ${r.photos_count ?? 'N/A'}`,
     `   Primary category: ${r.type ?? 'N/A'}`,
@@ -294,6 +301,11 @@ function formatRecord(r: OutscraperRecord, index?: number): string {
 }
 
 function formatSubjectWebsiteAudit(audit: SubjectWebsiteAudit): string {
+  if (!audit.reachable || audit.qualityScore === null) {
+    return `## SUBJECT WEBSITE AUDIT\nURL: ${audit.url}\nStatus: Unable to assess automatically.\n` +
+      `Quality score: Not assessed. Content, mobile support, SSL and functionality: Unknown.\n` +
+      `CONSTRAINT — The automated request failed. This does not establish a broken website, redirect loop, hosting error, missing content or customer-facing outage. Recommend a manual check, not repairs or replacement.`;
+  }
   const lines = [
     `## SUBJECT WEBSITE AUDIT`,
     `URL: ${audit.url}`,
@@ -333,10 +345,11 @@ function formatCompetitorWebsites(checks: CompetitorWebsiteCheck[]): string {
   const reachable = checks.filter(c => c.reachable);
   const lines = [
     `## COMPETITOR WEBSITE AUDITS`,
-    `Websites audited: ${checks.length} | Reachable: ${reachable.length} | Unreachable: ${checks.length - reachable.length}`,
+    `Websites audited: ${checks.length} | Reachable: ${reachable.length} | Not assessed: ${checks.length - reachable.length}`,
     ``,
-    ...checks.map(c =>
-      `**${c.name}**` +
+    ...checks.map(c => !c.reachable
+      ? `**${c.name}** | URL: ${c.url || 'not detected'} | Unable to assess automatically; all content and functionality unknown.`
+      : `**${c.name}**` +
       ` | URL: ${c.url || 'none'}` +
       ` | Reachable: ${c.reachable ? 'Yes' : 'No'}` +
       ` | SSL: ${c.ssl !== null ? (c.ssl ? 'Yes' : 'No') : '?'}` +
@@ -372,22 +385,23 @@ export function buildUserMessage(
       `Classify this as a Foundation Problem — missing or unfindable listing is the primary finding.`;
 
   const competitorSection = competitorRecords.length
-    ? `## COMPETITOR SET — ${competitorRecords.length} relevant businesses (pre-filtered for category relevance)\n\n` +
-      competitorRecords.map((r, i) => formatRecord(r, i)).join('\n\n')
+    ? `## COMPETITOR SET — ${competitorRecords.length} relevant businesses (country, actual distance and category checked)\n\n` +
+      competitorRecords.map((r, i) => formatRecord(r, i) + `\n   Distance from subject: ${subjectRecord ? distanceKm(subjectRecord, r)?.toFixed(2) : 'unknown'} km`).join('\n\n')
     : `## COMPETITOR SET\n\nNo relevant competitor data could be retrieved for this query.`;
 
   const benchmarkSection = `## PRE-VALIDATED BENCHMARK DATA
-The following figures have been computed and validated by the system before this prompt was generated.
+The following figures are computed from geographically filtered source records. This validates selection and arithmetic, not independent truth of every source field.
 You MUST use these figures in the report. Do NOT recalculate or contradict them.
 
 Sample:
+- Maximum straight-line distance from the verified subject: ${LOCAL_RADIUS_KM} km; same country required
 - Total competitor candidates fetched: ${benchmarks.totalCandidates}
 - Relevant competitors included (after relevance filtering): ${benchmarks.includedCount}
 - Competitors excluded as unrelated: ${benchmarks.excludedCount}
 
 Website validation (${benchmarks.websiteValidationSummary}):
-- Competitors WITH validated websites: ${benchmarks.competitorsWithWebsites}
-- Competitors WITHOUT websites: ${benchmarks.competitorsWithoutWebsites}
+- Competitors WITH detected website URLs: ${benchmarks.competitorsWithWebsites}
+- Competitors with NO website URL returned (existence unknown): ${benchmarks.competitorsWithoutWebsites}
 
 Aggregate metrics (computed from ${benchmarks.includedCount} relevant competitors):
 - Average rating: ${benchmarks.avgRating ?? 'insufficient data'}
@@ -405,6 +419,8 @@ Subject rankings within relevant competitor set:
 - Photo count rank: ${benchmarks.subjectPhotoRankLabel}
 
 Benchmark confidence: ${benchmarks.benchmarkConfidence}%
+Required confidence label: ${benchmarks.benchmarkConfidence >= 85 ? 'High' : benchmarks.benchmarkConfidence >= 60 ? 'Medium' : 'Low'}
+Confidence describes coverage and relevance of this sample, not independently verified metrics or all local businesses.
 ${benchmarks.confidenceReasons.length ? 'Confidence notes:\n' + benchmarks.confidenceReasons.map(r => `- ${r}`).join('\n') : ''}
 
 ## VALIDATED CONSTRAINTS — MANDATORY
