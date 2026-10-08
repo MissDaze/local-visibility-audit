@@ -1,5 +1,37 @@
 import { OutscraperRecord } from '../types/outscraper';
 
+
+/**
+ * Maps v3 returns address/website; older exports used full_address/site.
+ * Normalize at the provider boundary so subject validation, competitor
+ * filtering and report generation all consume the same field names.
+ */
+function normalizeMapsRecord(record: OutscraperRecord): OutscraperRecord {
+  const raw = record as OutscraperRecord & {
+    address?: string;
+    website?: string;
+    category?: string;
+    reviews_per_score?: Record<string, number | string>;
+  };
+  const text = (...values: unknown[]): string | undefined => {
+    for (const value of values) {
+      if (typeof value === 'string' && value.trim()) return value.trim();
+    }
+    return undefined;
+  };
+  return {
+    ...record,
+    full_address: text(record.full_address, raw.address),
+    site: text(record.site, raw.website),
+    type: text(record.type, raw.category),
+    reviews_per_score_1: record.reviews_per_score_1 ?? raw.reviews_per_score?.['1'],
+    reviews_per_score_2: record.reviews_per_score_2 ?? raw.reviews_per_score?.['2'],
+    reviews_per_score_3: record.reviews_per_score_3 ?? raw.reviews_per_score?.['3'],
+    reviews_per_score_4: record.reviews_per_score_4 ?? raw.reviews_per_score?.['4'],
+    reviews_per_score_5: record.reviews_per_score_5 ?? raw.reviews_per_score?.['5'],
+  };
+}
+
 // Outscraper's async=false (synchronous) mode holds a concurrency slot open
 // for the full scrape duration. It has proven unreliable under load — it can
 // hang with no response at all, or return "Too many requests" — even while
@@ -57,12 +89,14 @@ export async function outscraperSearch(query: string, limit = 20, maxWaitMs = 12
 
     const pollBody = await pollRes.json() as {
       status: string;
-      data?: OutscraperRecord[][];
+      data?: OutscraperRecord[][] | OutscraperRecord[];
       message?: string;
     };
 
     if (pollBody.status === 'Success') {
-      return pollBody.data?.[0] ?? [];
+      const data = pollBody.data ?? [];
+      const records = (Array.isArray(data[0]) ? data[0] : data) as OutscraperRecord[];
+      return records.map(normalizeMapsRecord);
     }
     if (pollBody.status !== 'Pending') {
       throw new Error(pollBody.message || `Outscraper job ended with status "${pollBody.status}".`);
