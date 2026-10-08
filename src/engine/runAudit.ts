@@ -335,5 +335,18 @@ export async function runAudit(
     throw new Error(`${finalMsg} — please try again in a moment.`);
   }
 
+  // Render the actual selected records directly, rather than asking the model
+  // to invent or reproduce competitor identities and locations.
+  const cell = (value: unknown) => String(value ?? 'Not supplied')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/\|/g, '&#124;').replace(/[\r\n]/g, ' ');
+  const evidence = '\n\n---\n\n## Competitors Used in This Assessment\n\n' +
+    `Compared with ${includedCompetitors.length} relevant businesses in ${subjectCountry}, within ${LOCAL_RADIUS_KM} km straight-line distance of **${cell(subjectRecord.name)}** (${cell(subjectRecord.full_address)}).\n\n` +
+    '| Competitor | Location | Distance |\n|---|---|---|\n' +
+    localCompetitors.filter(c => c.included).map(c =>
+      `| ${cell(c.record.name)} | ${cell(c.record.full_address)} | ${distanceKm(subjectRecord, c.record)!.toFixed(2)} km |`
+    ).join('\n') + `\n\nData retrieved: ${debug.geography.checkedAt}.\n`;
+  markdown += evidence;
+  onEvent({ text: evidence });
   return { markdown, debug };
 }
