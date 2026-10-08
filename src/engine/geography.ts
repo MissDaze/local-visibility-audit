@@ -65,20 +65,56 @@ function locationWords(value: string, country?: string | null): string[] {
   return words(value).split(' ').flatMap(token => (aliases[token] || token).split(' ')).filter(Boolean);
 }
 
+// Accept ordinary possessive/plural variants and one small spelling error.
+// Identity matching is separate from the mandatory country/address checks.
+function nameTokens(value: string): string[] {
+  return words(value).split(' ').filter(Boolean).map(token =>
+    token.length > 3 && token.endsWith('s') && !/(ss|us|is)$/.test(token)
+      ? token.slice(0, -1) : token);
+}
+
+function oneEditApart(a: string, b: string): boolean {
+  if (Math.min(a.length, b.length) < 4 || Math.abs(a.length - b.length) > 1) return false;
+  let i = 0, j = 0, edits = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) { i++; j++; continue; }
+    if (++edits > 1) return false;
+    if (a.length >= b.length) i++;
+    if (b.length >= a.length) j++;
+  }
+  return edits + (a.length - i) + (b.length - j) <= 1;
+}
+
+function businessNameScore(requested: string, candidate: string): number {
+  const input = nameTokens(requested), listed = nameTokens(candidate);
+  if (!input.length || !listed.length) return 0;
+  if (input.join('') === listed.join('')) return 100;
+  // Spacing differences (e.g. Fishbar / Fish Bar) are harmless.
+  if (input.length > 1 && listed.join('').includes(input.join(''))) return 95;
+  const remaining = [...listed];
+  const unmatched: string[] = [];
+  for (const token of input) {
+    const index = remaining.indexOf(token);
+    if (index === -1) unmatched.push(token);
+    else remaining.splice(index, 1);
+  }
+  if (!unmatched.length) return 90;
+  // Never fuzzy-match several words, or select solely on a short typo.
+  if (unmatched.length !== 1 || (input.length === 1 && input[0].length < 6)) return 0;
+  return remaining.some(token => oneEditApart(unmatched[0], token)) ? 70 : 0;
+}
+
 export function selectSubject(records: OutscraperRecord[], businessName: string, requestedLocation: string): OutscraperRecord {
-  const nameWords = words(businessName).split(' ').filter(Boolean);
-  const compactName = words(businessName).replace(/ /g, '');
   const matches = uniquePlaces(records).filter(record => {
     if (!record.name || !record.full_address || !coordinates(record) || !countryCode(record)) return false;
     const requestedWords = locationWords(requestedLocation, countryCode(record));
     const address = new Set(locationWords([record.full_address, record.city, record.state,
       record.postal_code, record.country, countryCode(record)].filter(Boolean).join(' '), countryCode(record)));
-    const name = words(record.name).replace(/ /g, '');
-    const nameMatches = name === compactName || nameWords.every(token => name.includes(token));
+    const nameMatches = businessNameScore(businessName, record.name) > 0;
     return nameMatches && requestedWords.length > 0 && requestedWords.every(token => address.has(token));
   });
-  const exact = matches.filter(record => words(record.name).replace(/ /g, '') === compactName);
-  const candidates = exact.length ? exact : matches;
+  const bestScore = Math.max(0, ...matches.map(record => businessNameScore(businessName, record.name)));
+  const candidates = matches.filter(record => businessNameScore(businessName, record.name) === bestScore);
   if (candidates.length !== 1) {
     throw new Error(candidates.length
       ? 'More than one matching business was found. Enter the exact business name, suburb, state and country so the correct location can be verified.'
